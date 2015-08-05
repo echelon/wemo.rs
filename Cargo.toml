@@ -2,6 +2,11 @@
   name = "wemo"
   version = "0.0.6"
   authors = [ "Brandon Thomas <bt@brand.io>, <echelon@gmail.com>" ]
+  description = "A library for interacting with Belkin WeMo home automation devices."
+  keywords = [ "WeMo", "Belkin", "home", "automation", "UPNP" ]
+  license-file = "LICENSE.md"
+  readme = "README.md"
+  repository = "https://github.com/echelon/wemo.rs"
 
 [lib]
   name = "wemo"
@@ -11,8 +16,5 @@
   mio = "0.3.*"
   regex = "0.1.*"
   time = "0.1.*"
-
-[dependencies.url]
-  git = "https://github.com/servo/rust-url"
-  version = "0.2.*"
+  url = "0.2.*"
 
