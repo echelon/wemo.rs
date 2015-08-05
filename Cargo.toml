@@ -1,0 +1,18 @@
+[package]
+  name = "wemo"
+  version = "0.0.6"
+  authors = [ "Brandon Thomas <bt@brand.io>, <echelon@gmail.com>" ]
+
+[lib]
+  name = "wemo"
+  path = "src/lib.rs"
+
+[dependencies]
+  mio = "0.3.*"
+  regex = "0.1.*"
+  time = "0.1.*"
+
+[dependencies.url]
+  git = "https://github.com/servo/rust-url"
+  version = "0.2.*"
+
