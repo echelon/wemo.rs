@@ -24,6 +24,7 @@ pub mod url {
 
 // Friendly top-level exports.
 // FIXME: Not a good idea to alias stuff; shorter package names are better.
+pub use device::SerialNumber;
 pub use device::error::WemoError;
 pub use device::state::WemoState;
 pub use device::switch::{Switch, WemoResult};

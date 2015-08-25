@@ -1,6 +1,6 @@
 [package]
   name = "wemo"
-  version = "0.0.6"
+  version = "0.0.7"
   authors = [ "Brandon Thomas <bt@brand.io>, <echelon@gmail.com>" ]
   description = "A library for interacting with Belkin WeMo home automation devices."
   keywords = [ "WeMo", "Belkin", "home", "automation", "UPNP" ]
