@@ -1,15 +1,15 @@
-// Copyright (c) 2015 Brandon Thomas <bt@brand.io>
+// Copyright (c) 2015-2016 Brandon Thomas <bt@brand.io>
 
 extern crate mio;
 
-use mio::{EventLoop, Handler, Interest, PollOpt, ReadHint, Token};
+use mio::{EventLoop, Handler, EventSet, PollOpt, Token};
 use mio::udp::UdpSocket;
 
 use regex::Regex;
 use url::Url;
 
 use std::collections::HashMap;
-use std::net::{AddrParseError, Ipv4Addr};
+use std::net::{AddrParseError, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
 use device::SerialNumber;
@@ -52,11 +52,16 @@ impl DeviceSearch {
 
   /// DeviceSearch CTOR.
   pub fn new() -> DeviceSearch {
+    let socket = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
+    let udp_socket = UdpSocket::v4().unwrap();
+
+    udp_socket.bind(&socket).unwrap();
+
     DeviceSearch {
       found_devices: HashMap::new(),
       target_serial: None,
       target_ip_address: None,
-      socket: UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 0)).unwrap(),
+      socket: udp_socket,
     }
   }
 
@@ -65,7 +70,7 @@ impl DeviceSearch {
       -> &HashMap<SerialNumber, SsdpResponse> {
     //println!("search");
     let mut event_loop = EventLoop::new().unwrap();
-    event_loop.register_opt(&self.socket, SENDER, Interest::writable(),
+    event_loop.register(&self.socket, SENDER, EventSet::writable(),
                             PollOpt::edge()).unwrap();
 
     event_loop.timeout_ms(TIMER_RESEND_SSDP, RESEND_SSDP_MS).unwrap();
@@ -116,16 +121,11 @@ impl DeviceSearch {
     self.target_serial = None;
     self.target_ip_address = None;
   }
-}
-
-impl Handler for DeviceSearch {
-  type Timeout = Token;
-  type Message = u32;
 
   /// Send SSDP search command.
-  fn writable(&mut self, event_loop: &mut EventLoop<DeviceSearch>,
-              token: Token) {
+  fn write_request(&mut self, event_loop: &mut EventLoop<DeviceSearch>) {
     let multicast_ip = Ipv4Addr::new(239, 255, 255, 250);
+    let multicast_socket = SocketAddr::V4(SocketAddrV4::new(multicast_ip, UPNP_PORT));
 
     // "ST:upnp:rootdevice\r\n" // All SSDP/UPNP hardware.
     // "ST:urn:Belkin:device:lightswitch:1\r\n" // Lightswitch.
@@ -140,41 +140,38 @@ impl Handler for DeviceSearch {
         &multicast_ip,
         &UPNP_PORT);
 
-    match token {
-      SENDER => {
-        self.socket.send_to(&mut header.as_bytes(), (multicast_ip, UPNP_PORT))
-            .unwrap();
-      },
-      _ => (),
-    };
 
-    event_loop.reregister(&self.socket, LISTENER, Interest::readable(),
+    self.socket.send_to(&mut header.as_bytes(), &multicast_socket)
+        .unwrap();
+
+    event_loop.reregister(&self.socket, LISTENER, EventSet::readable(),
                           PollOpt::edge()).unwrap();
   }
 
   /// Read SSDP responses and add WeMo devices to the map.
-  fn readable(&mut self, event_loop: &mut EventLoop<DeviceSearch>,
-              token: Token, _: ReadHint) {
+  fn read_response(&mut self, event_loop: &mut EventLoop<DeviceSearch>) {
     // FIXME: Cleanup this awful garbage code.
     let mut buf = [0; 1024 * 1024];
 
-    let parsed_response = match token {
-      LISTENER => {
-        let result = self.socket.recv_from(&mut buf);
-        match result {
-          Err(_) => { None },
-          Ok((amt, _)) => {
-            let mut vec: Vec<u8> = Vec::with_capacity(amt);
-            for i in 0 .. amt {
-              vec.push(buf[i]);
-            }
+    let parsed_response = {
+      let result = self.socket.recv_from(&mut buf);
+      match result {
+        Err(_) => { None },
+        Ok(response) => {
+          match response {
+            None => { None },
+            Some((amt, _)) => {
+              let mut vec: Vec<u8> = Vec::with_capacity(amt);
+              for i in 0 .. amt {
+                vec.push(buf[i]);
+              }
 
-            let response_headers = String::from_utf8(vec).unwrap();
-            parse_search_result(response_headers.as_ref())
-          },
-        }
-      },
-      _ => None,
+              let response_headers = String::from_utf8(vec).unwrap();
+              parse_search_result(response_headers.as_ref())
+            },
+          }
+        },
+      }
     };
 
     if parsed_response.is_some() {
@@ -199,6 +196,23 @@ impl Handler for DeviceSearch {
       }
     }
   }
+}
+
+impl Handler for DeviceSearch {
+  type Timeout = Token;
+  type Message = u32;
+
+  /// Handle events on the socket.
+  fn ready(&mut self, event_loop: &mut EventLoop<DeviceSearch>, _token: Token,
+           events: EventSet) {
+    if events.is_readable() {
+      self.read_response(event_loop);
+    }
+
+    if events.is_writable() {
+      self.write_request(event_loop);
+    }
+  }
 
   /// Manages timeouts: reenqueuing search and overall search timeout.
   fn timeout(&mut self, event_loop: &mut EventLoop<DeviceSearch>,
@@ -208,7 +222,7 @@ impl Handler for DeviceSearch {
       TIMER_RESEND_SSDP => {
         // Resend the SSDP search request every `RESEND_SSDP_MS` as long
         // as we're still searching (eg. TIMER_TIMEOUT not called).
-        event_loop.reregister(&self.socket, SENDER, Interest::writable(),
+        event_loop.reregister(&self.socket, SENDER, EventSet::writable(),
                           PollOpt::edge()).unwrap();
         event_loop.timeout_ms(TIMER_RESEND_SSDP, RESEND_SSDP_MS).unwrap();
       },

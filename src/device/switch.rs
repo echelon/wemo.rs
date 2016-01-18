@@ -9,6 +9,7 @@ pub use url::{Host, Url, SchemeData, RelativeSchemeData};
 
 use std::net::Ipv4Addr;
 use std::str::FromStr;
+use std::fmt::{Display, Error, Formatter};
 
 use time::PreciseTime;
 use url::{ParseError, UrlParser};
@@ -121,7 +122,7 @@ impl Switch {
 
   /// Turn the device off.
   pub fn turn_off_with_retry(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning on with retry: {}", self.location);
+    info!(target: "wemo", "Turning off with retry: {}", self.location);
     self.set_state_with_retry(Off, timeout)
   }
 
@@ -311,8 +312,8 @@ impl Switch {
     let response = client.post(request, timeout.num_milliseconds() as u64);
 
     match response {
-      Some(_) => Ok(state), // TODO: Check to ensure matches requested state
-      None => Err(WemoError::BadResponseError),
+      Some(_) => { Ok(state)  }, // TODO: Check to ensure matches requested state
+      None => { Err(WemoError::BadResponseError) },
     }
   }
 
@@ -370,7 +371,7 @@ impl Switch {
 
     match result {
       Ok(r) => { return Ok(r); },
-      Err(_) => {}, // TODO
+      Err(_) => {}, // TODO: Return type
     }
 
     let mut elapsed = start.to(PreciseTime::now());
@@ -386,16 +387,12 @@ impl Switch {
 
     start = PreciseTime::now();
 
-    debug!(target: "wemo",
-          "Could not set state {:?} for device {}, attempting to relocate",
-          state, self.location);
-
     let switch = match self.relocate(remaining) {
-      None => { return Err(WemoError::TimeoutError); }, // TODO: Wrong err.
+      None => {
+        return Err(WemoError::TimeoutError); // TODO: Wrong err.
+      },
       Some(s) => { s },
     };
-
-    debug!(target: "wemo", "Found device at {}", switch.location);
 
     elapsed = start.to(PreciseTime::now());
     if elapsed > remaining {
@@ -493,3 +490,8 @@ impl Switch {
   }
 }
 
+impl Display for Switch {
+  fn fmt(&self, f : &mut Formatter) -> Result<(), Error> {
+    write!(f, "Switch<{}>", self.location)
+  }
+}

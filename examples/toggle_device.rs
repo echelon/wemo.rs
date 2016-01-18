@@ -10,7 +10,7 @@ use wemo::Switch;
 pub fn main() {
   let ip_address = match env::args().nth(1) {
     Some(ip) => { ip },
-    None => { 
+    None => {
       println!("Supply an IP address to toggle the device state.");
       return;
     },
@@ -21,6 +21,6 @@ pub fn main() {
   let switch = Switch::from_url(&format!("http://{}", ip_address)).unwrap();
   let timeout = Duration::seconds(5);
 
-  switch.toggle_with_retry(timeout);
+  assert!(switch.toggle_with_retry(timeout).is_ok());
 }
 

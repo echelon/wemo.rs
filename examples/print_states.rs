@@ -19,8 +19,8 @@ pub fn main() {
         println!("Could not get the state.");
       },
       Ok(state) => {
-        println!("Device {} turned on: {}", 
-                 device.setup_url().host().unwrap(), 
+        println!("Device {} turned on: {}",
+                 device.setup_url().host().unwrap(),
                  state.is_on());
       },
     }
