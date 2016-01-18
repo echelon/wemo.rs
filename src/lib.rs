@@ -1,5 +1,7 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
+#[macro_use]
+extern crate log;
 extern crate mio;
 extern crate regex;
 

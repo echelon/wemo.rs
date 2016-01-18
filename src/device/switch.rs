@@ -1,5 +1,9 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
+/*
+ * Device representation and control
+ */
+
 pub use time::Duration;
 pub use url::{Host, Url, SchemeData, RelativeSchemeData};
 
@@ -99,21 +103,25 @@ impl Switch {
 
   /// Turn the device on.
   pub fn turn_on(&self, timeout: Duration) -> WemoResult {
+    info!(target: "wemo", "Turning on: {}", self.location);
     self.set_state(On, timeout)
   }
 
   /// Turn the device on.
   pub fn turn_on_with_retry(&self, timeout: Duration) -> WemoResult {
+    info!(target: "wemo", "Turning on with retry: {}", self.location);
     self.set_state_with_retry(On, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off(&self, timeout: Duration) -> WemoResult {
+    info!(target: "wemo", "Turning off: {}", self.location);
     self.set_state(Off, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off_with_retry(&self, timeout: Duration) -> WemoResult {
+    info!(target: "wemo", "Turning on with retry: {}", self.location);
     self.set_state_with_retry(Off, timeout)
   }
 
@@ -201,14 +209,14 @@ impl Switch {
   pub fn get_state(&self, timeout: Duration) -> WemoResult {
     let ip_address = match self.get_ip_address() {
       Some(ip) => { ip },
-      None => { 
+      None => {
         return Err(WemoError::BadResponseError); // TODO WRONG TYPE
       },
     };
 
     let port = match self.get_port() {
       Some(port) => { port },
-      None => { 
+      None => {
         return Err(WemoError::BadResponseError); // TODO WRONG TYPE
       },
     };
@@ -238,7 +246,7 @@ impl Switch {
     };
 
     let response = client.post(request, timeout.num_milliseconds() as u64);
-  
+
     // TODO: Stronger return error types
     let body = match response {
       Some(r) => { r },
@@ -263,14 +271,14 @@ impl Switch {
   pub fn set_state(&self, state: WemoState, timeout: Duration) -> WemoResult {
     let ip_address = match self.get_ip_address() {
       Some(ip) => { ip },
-      None => { 
+      None => {
         return Err(WemoError::BadResponseError); // TODO WRONG TYPE
       },
     };
 
     let port = match self.get_port() {
       Some(port) => { port },
-      None => { 
+      None => {
         return Err(WemoError::BadResponseError); // TODO WRONG TYPE
       },
     };
@@ -319,7 +327,7 @@ impl Switch {
       Ok(r) => { return Ok(r); },
       Err(_) => {}, // TODO
     }
-    
+
     let mut elapsed = start.to(PreciseTime::now());
 
     if elapsed > timeout {
@@ -357,14 +365,14 @@ impl Switch {
     let mut start = PreciseTime::now();
 
     // TODO: use the minimum of the timestamps
-    let result = self.set_state(state.clone(), 
+    let result = self.set_state(state.clone(),
         Duration::milliseconds(FIRST_ATTEMPT_TIMEOUT));
 
     match result {
       Ok(r) => { return Ok(r); },
       Err(_) => {}, // TODO
     }
-    
+
     let mut elapsed = start.to(PreciseTime::now());
 
     if elapsed > timeout {
@@ -378,10 +386,16 @@ impl Switch {
 
     start = PreciseTime::now();
 
+    debug!(target: "wemo",
+          "Could not set state {:?} for device {}, attempting to relocate",
+          state, self.location);
+
     let switch = match self.relocate(remaining) {
       None => { return Err(WemoError::TimeoutError); }, // TODO: Wrong err.
       Some(s) => { s },
     };
+
+    debug!(target: "wemo", "Found device at {}", switch.location);
 
     elapsed = start.to(PreciseTime::now());
     if elapsed > remaining {
@@ -409,7 +423,7 @@ impl Switch {
     }
   }
 
-  /// Get the currently known port. 
+  /// Get the currently known port.
   #[inline]
   pub fn get_port(&self) -> Option<u16> {
     self.location.port()

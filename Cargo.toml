@@ -1,10 +1,10 @@
 [package]
   name = "wemo"
-  version = "0.0.6"
-  authors = [ "Brandon Thomas <bt@brand.io>, <echelon@gmail.com>" ]
+  version = "0.0.7"
+  authors = [ "Brandon Thomas <bt@brand.io>", "Brandon Thomas <echelon@gmail.com>" ]
   description = "A library for interacting with Belkin WeMo home automation devices."
   keywords = [ "WeMo", "Belkin", "home", "automation", "UPNP" ]
-  license-file = "LICENSE.md"
+  license = "BSD-4-Clause"
   readme = "README.md"
   repository = "https://github.com/echelon/wemo.rs"
 
@@ -13,8 +13,9 @@
   path = "src/lib.rs"
 
 [dependencies]
-  mio = "0.3.*"
+  log = "0.3.*"
+  mio = "0.3.*" # TODO: Update
   regex = "0.1.*"
   time = "0.1.*"
-  url = "0.2.*"
+  url = "0.5.*"
 

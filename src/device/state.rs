@@ -1,6 +1,6 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum WemoState {
   /// State `0`
   Off,
