@@ -5,14 +5,14 @@
  */
 
 pub use time::Duration;
-pub use url::{Host, Url, SchemeData, RelativeSchemeData};
+pub use url::{Host, Url};
 
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::fmt::{Display, Error, Formatter};
 
 use time::PreciseTime;
-use url::{ParseError, UrlParser};
+use url::ParseError;
 use xml::find_tag_value;
 
 use super::SerialNumber;
@@ -61,43 +61,21 @@ impl Switch {
   /// Switch CTOR.
   #[inline]
   pub fn from_ip_and_port(ip_addr: &str, port: u16) -> Switch {
-    Switch::new(
-      Url {
-        scheme_data: SchemeData::Relative(RelativeSchemeData {
-          host: Host::parse(ip_addr).unwrap(),
-          port: Some(port),
-          default_port: None,
-          password: None,
-          path: Vec::new(),
-          username: "".to_string(),
-        }),
-        scheme: "http".to_string(),
-        query: None,
-        fragment: None,
-      }
-    )
+    // FIXME: No unwrap. This library has bigger problems than this, though.
+    let url = Url::parse(&format!("http://{}:{}", ip_addr, port)).unwrap();
+    Switch::new(url)
   }
 
   /// Switch CTOR.
   #[inline]
   fn from_search_result(search_result: &SsdpResponse) -> Switch {
-    // TODO: Unwrap Safety.
-    let host = search_result.setup_url.host().unwrap().serialize();
+    // FIXME: Super lame and unsafe.
+    let host = search_result.setup_url.host_str().unwrap();
+    let port = search_result.port;
+    let url = Url::parse(&format!("http://{}:{}", host, port)).unwrap();
 
     Switch {
-      location: Url {
-        scheme_data: SchemeData::Relative(RelativeSchemeData {
-          host: Host::parse(&host).unwrap(),
-          port: Some(search_result.port),
-          default_port: None,
-          password: None,
-          path: Vec::new(),
-          username: "".to_string(),
-        }),
-        scheme: "http".to_string(),
-        query: None,
-        fragment: None,
-      },
+      location: url,
       serial_number: Some(search_result.serial_number.clone()),
     }
   }
@@ -409,15 +387,12 @@ impl Switch {
 
   /// Get the currently known IP address.
   pub fn get_ip_address(&self) -> Option<Ipv4Addr> {
-    match self.location.serialize_host() {
-      None => { None },
-      Some(host) => {
-        match Ipv4Addr::from_str(&host) {
-          Err(_) => { None },
-          Ok(ip) => { Some(ip) },
-        }
-      },
-    }
+    self.location.host_str().and_then(|host| {
+      match Ipv4Addr::from_str(&host) {
+        Err(_) => { None },
+        Ok(ip) => { Some(ip) },
+      }
+    })
   }
 
   /// Get the currently known port.
@@ -476,17 +451,17 @@ impl Switch {
   /// Get the "setup"/info URL.
   #[inline]
   pub fn setup_url(&self) -> Url {
-    UrlParser::new().base_url(&self.location)
-      .parse("/setup.xml")
-      .unwrap()
+    let mut url = self.location.clone();
+    url.set_path("/setup.xml");
+    url
   }
 
   /// Get the "basic event" URL.
   #[inline]
   pub fn basic_event_url(&self)-> Url {
-    UrlParser::new().base_url(&self.location)
-      .parse("/upnp/control/basicevent1")
-      .unwrap()
+    let mut url = self.location.clone();
+    url.set_path("/upnp/control/basicevent1");
+    url
   }
 }
 

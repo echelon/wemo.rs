@@ -17,10 +17,7 @@ pub mod url {
   pub use self::url::{
     Host,
     ParseError,
-    RelativeSchemeData,
-    SchemeData,
     Url,
-    UrlParser,
   };
 }
 

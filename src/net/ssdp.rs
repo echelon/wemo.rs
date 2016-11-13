@@ -261,11 +261,11 @@ fn parse_search_result(response_headers: &str) -> Option<SsdpResponse> {
 
   if url.host().is_none() { return None; }
 
-  let host = url.host().unwrap();
-  let port = url.port_or_default().unwrap_or(80);
+  let host = url.host_str().unwrap(); // FIXME
+  let port = url.port().unwrap_or(80);
 
   let ip_address : Result<Ipv4Addr, AddrParseError>
-      = Ipv4Addr::from_str(host.serialize().as_ref());
+      = Ipv4Addr::from_str(host);
 
   if ip_address.is_err() { return None; }
 
