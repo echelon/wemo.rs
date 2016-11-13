@@ -1,5 +1,7 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
+use std::fmt;
+
 #[derive(Clone,Debug,Eq,PartialEq)]
 pub enum WemoState {
   /// State `0`
@@ -11,6 +13,18 @@ pub enum WemoState {
   OnWithoutLoad,
   /// Unknown state
   Unknown(u16),
+}
+
+impl fmt::Display for WemoState {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let s = match *self {
+      WemoState::Off => "WemoState::Off",
+      WemoState::On => "WemoState::On",
+      WemoState::OnWithoutLoad => "WemoState::OnWithoutLoad",
+      _ => "WemoState::Unknown",
+    };
+    write!(f, "{}", s)
+  }
 }
 
 impl WemoState {
