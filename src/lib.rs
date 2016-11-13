@@ -1,5 +1,10 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
+#[cfg(feature = "subscriptions")] extern crate get_if_addrs;
+#[cfg(feature = "subscriptions")] extern crate iron;
+#[cfg(feature = "subscriptions")] extern crate persistent;
+#[cfg(feature = "subscriptions")] extern crate urlencoded;
+#[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
 extern crate mio;
 extern crate regex;
@@ -20,10 +25,12 @@ pub mod url {
   };
 }
 
+#[cfg(feature = "subscriptions")] pub mod subscriptions;
 pub mod error;
 
 mod device;
 mod net;
+mod parsing;
 mod xml;
 
 // Friendly top-level exports.

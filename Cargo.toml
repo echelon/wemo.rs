@@ -13,9 +13,18 @@
   path = "src/lib.rs"
 
 [dependencies]
+  get_if_addrs = { version = "0.4.*", optional = true } # TODO: Remove. GPL is too strict.
+  iron = { version = "0.4.*", optional = true }
+  lazy_static = "0.2.*"
   log = "0.3.*"
   mio = "0.5.*"
+  persistent = { version = "0.2.*", optional = true }
   regex = "0.1.*"
   time = "0.1.*"
   url = "1.2.*"
+  urlencoded = { version = "0.4.*", optional = true }
 
+[features]
+  # Optionally support subscribing to devices.
+  default = ["subscriptions"]
+  subscriptions = ["get_if_addrs", "iron", "persistent", "urlencoded"]

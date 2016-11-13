@@ -18,7 +18,7 @@ use device::SerialNumber;
 /// every n millisec (until search request timeout).
 const RESEND_SSDP_MS: u64 = 300;
 
-const UPNP_PORT: u16 = 1900;
+pub const UPNP_PORT: u16 = 1900;
 const LISTENER: Token = Token(0);
 const SENDER: Token = Token(1);
 const TIMER_RESEND_SSDP: Token = Token(3);
