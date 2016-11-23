@@ -1,5 +1,6 @@
 // Copyright (c) 2016 Brandon Thomas <bt@brand.io, echelon@gmail.com>
 
+use std::boxed::Box;
 use error::WemoError;
 use iron::Handler;
 use iron::Listening;
@@ -7,6 +8,7 @@ use iron::prelude::*;
 use iron::request::Body;
 use iron::status;
 use net::ssdp::UPNP_PORT;
+use parsing::parse_state;
 use std::collections::HashMap;
 use std::io::Error as ioError;
 use std::io::Read;
@@ -16,7 +18,7 @@ use std::net::SocketAddr;
 use std::net::SocketAddrV4;
 use std::net::TcpStream;
 use std::net::UdpSocket;
-use parsing::parse_state;
+use std::ops::Fn;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::thread::JoinHandle;
@@ -25,12 +27,15 @@ use std::thread;
 use std::time::Duration;
 use urlencoded::UrlEncodedQuery;
 
+type Callback = Fn();
+
 #[derive(Default)]
 struct Subscription {
   notification_count: u64,
   subscribed_on: u8, // TODO
   expires_on: u8, // TODO
   enabled: bool,
+  callback: Option<Box<Fn() + Sync + Send>>,
 }
 
 /// Subscriptions objects manage Wemo device event notifications. You can
@@ -82,7 +87,24 @@ impl Subscriptions {
   /// notifications.
   pub fn subscribe(&self, host: &str) -> Result<(), WemoError> {
     send_subscribe(host, self.subscription_ttl_sec, self.callback_port)?;
-    self.register_subscription(host)?;
+
+    let mut subscription = Subscription::default();
+    subscription.enabled = true;
+
+    self.register_subscription(host, subscription)?;
+    Ok(())
+  }
+
+  pub fn subscribe_callback<F>(&self, host: &str, callback: F)
+                               -> Result<(), WemoError>
+                               where F: Fn() + Sync + Send + 'static {
+    send_subscribe(host, self.subscription_ttl_sec, self.callback_port)?;
+
+    let mut subscription = Subscription::default();
+    subscription.callback = Some(Box::new(callback));
+    subscription.enabled = true;
+
+    self.register_subscription(host, subscription)?;
     Ok(())
   }
 
@@ -97,25 +119,10 @@ impl Subscriptions {
 
     let subs = self.subscriptions.clone();
 
+    // TODO: Request headers contain re-subscribe UUID, which should be used
+    // instead of subscribing again without a subscription ID.
     let handler = move |request: &mut Request| -> IronResult<Response> {
       let hashmap = subs.read().unwrap();
-
-      //let arc = req.get::<Read<Log>>().unwrap();
-      //let log_path = arc.as_ref();
-
-      //let arc = request.get::<Write<P>>(); // Arc<Mutex>>.
-
-
-      //match request.get_ref::<UrlEncodedQuery>() {
-      //  Ok(ref hashmap) => println!("Parsed GET request query string:\n {:?}", hashmap),
-      //  Err(ref e) => println!("{:?}", e)
-      //}
-
-      // (USELESS) Header - HOST: 192.168.1.4:3000
-      // (USELESS) Header - SID: uuid:2c89db26-1dd2-11b2-b45b-b4fc561fc6be
-      //for header in request.headers.iter() {
-      //  println!("Header - {}: {}", header.name(), header.value_string());
-      //}
 
       let mut body = String::new();
       request.body.read_to_string(&mut body);
@@ -128,6 +135,37 @@ impl Subscriptions {
         Err(_) => println!("Parse Error"),
         Ok(state) => println!("State updated: {}", state),
       }
+
+      match request.get_ref::<UrlEncodedQuery>() {
+        Ok(ref hashmap) => {
+          println!("Parsed GET request query string:\n {:?}", hashmap);
+
+          let s = subs.read().unwrap();
+
+          let p = hashmap.get("from").unwrap().get(0).unwrap();
+
+          println!("from is: {:?}", p);
+
+
+          match s.get(p) {
+            None => {},
+            Some(val) => {
+
+              println!("Got subscription.");
+
+              if val.callback.is_some() {
+                println!("Calling callback...");
+                let callback = val.callback.as_ref().unwrap();
+                callback();
+              }
+            }
+          }
+
+        },
+        Err(ref e) => println!("{:?}", e)
+      }
+
+
 
       Ok(Response::with((status::Ok, "")))
     };
@@ -201,9 +239,8 @@ impl Subscriptions {
     self.continue_polling = false;
   }
 
-  fn register_subscription(&self, host: &str) -> Result<(), WemoError> {
-    let mut subscription = Subscription::default();
-    subscription.enabled = true;
+  fn register_subscription(&self, host: &str, subscription: Subscription)
+                           -> Result<(), WemoError> {
     self.subscriptions.write().map_err(|_| WemoError::LockError)?
         .insert(host.to_string(), subscription);
     Ok(())

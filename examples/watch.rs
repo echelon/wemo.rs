@@ -17,7 +17,7 @@ pub fn main() {
 
   for (_key, device) in results.into_iter() {
     let location = format!("{}:{}", device.ip_address, device.port);
-    subs.subscribe(&location);
+    subs.subscribe_callback(&location, || { println!("THIS IS THE CALLBACK") }).unwrap();
     println!("> Subscribed to: {}", location);
   }
 
