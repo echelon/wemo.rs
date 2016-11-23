@@ -1,5 +1,9 @@
 // Copyright (c) 2016 Brandon Thomas <bt@brand.io, echelon@gmail.com>
 
+use std::error::Error;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result;
 use std::io::Error as IoError;
 
 // TODO: Work in progress unifying errors.
@@ -34,5 +38,17 @@ pub enum WemoError {
 impl From<IoError> for WemoError {
   fn from(error: IoError) -> WemoError {
     WemoError::IoError { cause: error }
+  }
+}
+
+impl Error for WemoError {
+  fn description(&self) -> &str {
+    "TODO" // TODO: Actual description based on enum variant
+  }
+}
+
+impl Display for WemoError {
+  fn fmt(&self, f: &mut Formatter) -> Result {
+    write!(f, "WemoError") // TODO: Include enum variants
   }
 }

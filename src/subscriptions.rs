@@ -1,6 +1,7 @@
 // Copyright (c) 2016 Brandon Thomas <bt@brand.io, echelon@gmail.com>
 
-use std::boxed::Box;
+use device::state::WemoState;
+//use iron::IronError;
 use error::WemoError;
 use iron::Handler;
 use iron::Listening;
@@ -9,6 +10,7 @@ use iron::request::Body;
 use iron::status;
 use net::ssdp::UPNP_PORT;
 use parsing::parse_state;
+use std::boxed::Box;
 use std::collections::HashMap;
 use std::io::Error as ioError;
 use std::io::Read;
@@ -36,6 +38,12 @@ struct Subscription {
   expires_on: u8, // TODO
   enabled: bool,
   callback: Option<Box<Fn() + Sync + Send>>,
+}
+
+/// Subscription notifications.
+/// More may be added in the future.
+pub enum Notification {
+  State { state: WemoState }
 }
 
 /// Subscriptions objects manage Wemo device event notifications. You can
@@ -128,13 +136,11 @@ impl Subscriptions {
       request.body.read_to_string(&mut body);
 
       if !body.contains("BinaryState") {
+        println!("body: {}", body);
         return Ok(Response::with((status::Ok, "")));
       }
 
-      match parse_state(&body) {
-        Err(_) => println!("Parse Error"),
-        Ok(state) => println!("State updated: {}", state),
-      }
+      let state = parse_state(&body)?;
 
       match request.get_ref::<UrlEncodedQuery>() {
         Ok(ref hashmap) => {
@@ -164,8 +170,6 @@ impl Subscriptions {
         },
         Err(ref e) => println!("{:?}", e)
       }
-
-
 
       Ok(Response::with((status::Ok, "")))
     };
@@ -281,4 +285,15 @@ fn send_subscribe(host: &str,
   // TODO: Read response.
 
   Ok(())
+}
+
+//iron::IronError: std::convert::From<error::WemoError>
+impl From<WemoError> for IronError {
+  fn from(error: WemoError) -> IronError {
+    let response = Response::with((status::InternalServerError, "Error"));
+    IronError {
+      error: Box::new(error),
+      response: response,
+    }
+  }
 }
