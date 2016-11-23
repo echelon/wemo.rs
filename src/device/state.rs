@@ -1,6 +1,6 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,Eq,PartialEq)]
 pub enum WemoState {
   /// State `0`
   Off,
@@ -64,4 +64,3 @@ impl WemoState {
     }
   }
 }
-

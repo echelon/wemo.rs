@@ -134,4 +134,3 @@ impl Handler for SoapClient {
     event_loop.shutdown();
   }
 }
-

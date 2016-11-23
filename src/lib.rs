@@ -1,7 +1,6 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
-#[macro_use]
-extern crate log;
+#[macro_use] extern crate log;
 extern crate mio;
 extern crate regex;
 
@@ -21,15 +20,15 @@ pub mod url {
   };
 }
 
-// Friendly top-level exports.
-// FIXME: Not a good idea to alias stuff; shorter package names are better.
-pub use device::error::WemoError;
-pub use device::state::WemoState;
-pub use device::switch::{Switch, WemoResult};
-pub use net::ssdp::DeviceSearch;
-pub use net::ssdp::SsdpResponse;
+pub mod error;
 
 mod device;
 mod net;
 mod xml;
 
+// Friendly top-level exports.
+// FIXME: Not a good idea to alias stuff; shorter package names are better.
+pub use device::state::WemoState;
+pub use device::switch::{Switch, WemoResult};
+pub use net::ssdp::DeviceSearch;
+pub use net::ssdp::SsdpResponse;

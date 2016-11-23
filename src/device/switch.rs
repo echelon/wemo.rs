@@ -16,9 +16,9 @@ use url::ParseError;
 use xml::find_tag_value;
 
 use super::SerialNumber;
-use super::error::WemoError;
 use super::state::WemoState::{Off, On, OnWithoutLoad};
 use super::state::WemoState;
+use error::WemoError;
 use net::soap::{SoapClient, SoapRequest};
 use net::ssdp::{DeviceSearch, SsdpResponse};
 

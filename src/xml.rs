@@ -46,4 +46,3 @@ mod tests {
       find_tag_value("futuramaCharacter", "<pokemon>Pikachu</pokemon>"));
   }
 }
-

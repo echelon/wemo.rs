@@ -287,4 +287,3 @@ fn parse_search_result(response_headers: &str) -> Option<SsdpResponse> {
     setup_url: url.clone(),
   })
 }
-

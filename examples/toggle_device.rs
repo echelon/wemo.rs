@@ -23,4 +23,3 @@ pub fn main() {
 
   assert!(switch.toggle_with_retry(timeout).is_ok());
 }
-
