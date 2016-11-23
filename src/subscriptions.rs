@@ -1,25 +1,21 @@
 // Copyright (c) 2016 Brandon Thomas <bt@brand.io, echelon@gmail.com>
 
 use device::state::WemoState;
-//use iron::IronError;
 use error::WemoError;
-use iron::Handler;
+use iron::Iron;
+use iron::IronError;
+use iron::IronResult;
 use iron::Listening;
-use iron::prelude::*;
-use iron::request::Body;
+use iron::Plugin;
+use iron::Request;
+use iron::Response;
 use iron::status;
-use net::ssdp::UPNP_PORT;
 use parsing::parse_state;
 use std::boxed::Box;
 use std::collections::HashMap;
-use std::io::Error as ioError;
 use std::io::Read;
 use std::io::Write;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
-use std::net::SocketAddrV4;
 use std::net::TcpStream;
-use std::net::UdpSocket;
 use std::ops::Fn;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -29,21 +25,14 @@ use std::thread;
 use std::time::Duration;
 use urlencoded::UrlEncodedQuery;
 
-type Callback = Fn();
-
-#[derive(Default)]
-struct Subscription {
-  notification_count: u64,
-  subscribed_on: u8, // TODO
-  expires_on: u8, // TODO
-  enabled: bool,
-  callback: Option<Box<Fn(Notification) + Sync + Send>>,
-}
-
 /// Subscription notifications.
 /// More may be added in the future.
 pub enum Notification {
   State { state: WemoState }
+}
+
+struct Subscription {
+  callback: Option<Box<Fn(Notification) + Sync + Send>>,
 }
 
 /// Subscriptions objects manage Wemo device event notifications. You can
@@ -59,21 +48,6 @@ pub struct Subscriptions {
   continue_polling: bool,
   subscriptions: Arc<RwLock<HashMap<String, Subscription>>>,
 }
-
-/*
-subs = Subscriptions::new(port, subscription_ttl);
-
-subs.subscribe("http://...")
-subs.subscribe_callback("http://...", FnOnce)
-
-subs.register_global_callback(key, FnOnce)
-subs.unregister_global_callback(key)
-
-subs.start_server(); // In its own thread.
-
-subs.unsubscribe("http://...")
-subs.subscribe("http://...")
-*/
 
 impl Subscriptions {
   /// CTOR.
@@ -91,28 +65,24 @@ impl Subscriptions {
   }
 
   /// Subscribe to push notifications from a Wemo device.
+  /// The provided callback is invoked when notifications are received.
   /// This should be done after launching the server to avoid missing
   /// notifications.
-  pub fn subscribe(&self, host: &str) -> Result<(), WemoError> {
+  pub fn subscribe<F>(&self, host: &str, callback: F)
+                      -> Result<(), WemoError>
+                      where F: Fn(Notification) + Sync + Send + 'static {
     send_subscribe(host, self.subscription_ttl_sec, self.callback_port)?;
 
-    let mut subscription = Subscription::default();
-    subscription.enabled = true;
+    let subscription = Subscription { callback: Some(Box::new(callback)) };
 
     self.register_subscription(host, subscription)?;
     Ok(())
   }
 
-  pub fn subscribe_callback<F>(&self, host: &str, callback: F)
-                               -> Result<(), WemoError>
-                               where F: Fn(Notification) + Sync + Send + 'static {
-    send_subscribe(host, self.subscription_ttl_sec, self.callback_port)?;
-
-    let mut subscription = Subscription::default();
-    subscription.callback = Some(Box::new(callback));
-    subscription.enabled = true;
-
-    self.register_subscription(host, subscription)?;
+  /// Remove a subscription.
+  pub fn unsubscribe(&self, host: &str) -> Result<(), WemoError> {
+    self.subscriptions.write().map_err(|_| WemoError::LockError)?
+        .remove(host);
     Ok(())
   }
 
@@ -133,7 +103,8 @@ impl Subscriptions {
       let hashmap = subs.read().unwrap();
 
       let mut body = String::new();
-      request.body.read_to_string(&mut body);
+      request.body.read_to_string(&mut body)
+          .map_err(|e| WemoError::IoError { cause: e })?;
 
       if !body.contains("BinaryState") {
         // TODO: Handle other types of state update.
@@ -197,7 +168,11 @@ impl Subscriptions {
 
     self.stop_polling();
 
-    self.server_handle.as_mut().unwrap().close();
+    self.server_handle.as_mut()
+        .unwrap()
+        .close()
+        .map_err(|_| WemoError::IronError)?;
+
     self.server_handle = None;
 
     Ok(())
@@ -217,7 +192,6 @@ impl Subscriptions {
       loop {
         //thread::sleep(Duration::from_secs(300)); // 60 * 5
         thread::sleep(Duration::from_secs(30));
-        println!("Resubscribing...");
 
         let subs = match subscriptions.read() {
           Err(_) => continue, // TODO: LOG
@@ -227,9 +201,8 @@ impl Subscriptions {
         // TODO: A single failure can hold things up, causing missed events
         // from temporarily dropped subscriptions. Also, I need to mitigate
         // change of ports (and IP addresses).
-        for (host, subscription) in subs.iter() {
-          println!("Resubscribe to {}.", host);
-          send_subscribe(host, subscription_ttl_sec, callback_port);
+        for (host, _subscription) in subs.iter() {
+          let _r = send_subscribe(host, subscription_ttl_sec, callback_port);
         }
       }
     });
@@ -257,6 +230,7 @@ fn send_subscribe(host: &str,
                   subscription_ttl_sec: u16,
                   callback_port: u16) -> Result<(), WemoError> {
   let local_ip = "192.168.1.4"; // TODO: Must get local IP address.
+  println!("TODO: MUST GET LOCAL IP ADDRESS!!!");
 
   let callback_url = format!("http://{}:{}/?from={}",
     local_ip, callback_port, host);
@@ -276,8 +250,8 @@ fn send_subscribe(host: &str,
 
   let mut stream = TcpStream::connect(host)?;
 
-  stream.set_read_timeout(Some(Duration::from_secs(1)));
-  stream.set_write_timeout(Some(Duration::from_secs(1)));
+  stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+  stream.set_write_timeout(Some(Duration::from_secs(1)))?;
 
   let _ = stream.write(header.as_bytes()); // TODO: Timeout
 
