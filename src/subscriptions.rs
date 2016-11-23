@@ -37,7 +37,7 @@ struct Subscription {
   subscribed_on: u8, // TODO
   expires_on: u8, // TODO
   enabled: bool,
-  callback: Option<Box<Fn() + Sync + Send>>,
+  callback: Option<Box<Fn(Notification) + Sync + Send>>,
 }
 
 /// Subscription notifications.
@@ -105,7 +105,7 @@ impl Subscriptions {
 
   pub fn subscribe_callback<F>(&self, host: &str, callback: F)
                                -> Result<(), WemoError>
-                               where F: Fn() + Sync + Send + 'static {
+                               where F: Fn(Notification) + Sync + Send + 'static {
     send_subscribe(host, self.subscription_ttl_sec, self.callback_port)?;
 
     let mut subscription = Subscription::default();
@@ -161,7 +161,10 @@ impl Subscriptions {
               if val.callback.is_some() {
                 println!("Calling callback...");
                 let callback = val.callback.as_ref().unwrap();
-                callback();
+                let notification = Notification::State {
+                  state: state,
+                };
+                callback(notification);
               }
             }
           }

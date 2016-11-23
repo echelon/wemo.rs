@@ -3,6 +3,7 @@ extern crate wemo;
 extern crate time;
 
 use wemo::DeviceSearch;
+use wemo::Notification;
 use wemo::Subscriptions;
 
 pub fn main() {
@@ -17,7 +18,16 @@ pub fn main() {
 
   for (_key, device) in results.into_iter() {
     let location = format!("{}:{}", device.ip_address, device.port);
-    subs.subscribe_callback(&location, || { println!("THIS IS THE CALLBACK") }).unwrap();
+
+    subs.subscribe_callback(&location, |notification: Notification| {
+      println!("THIS IS THE CALLBACK");
+      match notification {
+        Notification::State { state } => {
+          println!("State update: {}", state);
+        }
+      }
+    }).unwrap();
+
     println!("> Subscribed to: {}", location);
   }
 

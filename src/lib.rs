@@ -40,3 +40,4 @@ pub use device::switch::{Switch, WemoResult};
 pub use net::ssdp::DeviceSearch;
 pub use net::ssdp::SsdpResponse;
 pub use subscriptions::Subscriptions;
+pub use subscriptions::Notification;
