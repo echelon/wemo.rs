@@ -120,7 +120,9 @@ impl Subscriptions {
       let mut body = String::new();
       request.body.read_to_string(&mut body);
 
-      println!("Updated!");
+      if !body.contains("BinaryState") {
+        return Ok(Response::with((status::Ok, "")));
+      }
 
       match parse_state(&body) {
         Err(_) => println!("Parse Error"),

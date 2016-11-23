@@ -13,7 +13,7 @@ use regex::Regex;
 pub fn parse_state(xml: &str) -> Result<WemoState, WemoError> {
   lazy_static! {
     static ref RE: Regex =
-        Regex::new(r"<BinaryState>(\d)(\|\d+)*</BinaryState>").unwrap();
+        Regex::new(r"<BinaryState>(\d)(\|-?\d+)*</BinaryState>").unwrap();
   }
 
   let matches = RE.captures(xml).ok_or(WemoError::ParsingError)?;
@@ -80,6 +80,15 @@ mod tests {
           <BinaryState>8|1234567890|1234|4321|111111|1234567|11|55555|6543210|000000000</BinaryState>
         </e:property>
       </e:propertyset>"#;
+
+    assert_eq!(WemoState::OnWithoutLoad, parse_state(xml).unwrap());
+
+    let xml = r#"
+    <e:propertyset xmlns:e="urn:schemas-upnp-org:event-1-0">
+      <e:property>
+        <BinaryState>8|1479872570|0|0|432|1234|56|0|0|-123</BinaryState>
+      </e:property>
+    </e:propertyset>"#;
 
     assert_eq!(WemoState::OnWithoutLoad, parse_state(xml).unwrap());
   }

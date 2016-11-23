@@ -2,16 +2,13 @@
 extern crate wemo;
 extern crate time;
 
-use std::env;
-use time::Duration;
 use wemo::DeviceSearch;
 use wemo::Subscriptions;
-use wemo::Switch;
 
 pub fn main() {
   let mut subs = Subscriptions::new(3000, 60);
 
-  subs.start_server();
+  subs.start_server().unwrap();
 
   println!("Searching for devices to subscribe to...");
 
