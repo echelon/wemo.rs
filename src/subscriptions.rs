@@ -136,7 +136,7 @@ impl Subscriptions {
       request.body.read_to_string(&mut body);
 
       if !body.contains("BinaryState") {
-        println!("body: {}", body);
+        // TODO: Handle other types of state update.
         return Ok(Response::with((status::Ok, "")));
       }
 
@@ -152,7 +152,6 @@ impl Subscriptions {
 
           println!("from is: {:?}", p);
 
-
           match s.get(p) {
             None => {},
             Some(val) => {
@@ -166,7 +165,6 @@ impl Subscriptions {
               }
             }
           }
-
         },
         Err(ref e) => println!("{:?}", e)
       }
@@ -287,7 +285,6 @@ fn send_subscribe(host: &str,
   Ok(())
 }
 
-//iron::IronError: std::convert::From<error::WemoError>
 impl From<WemoError> for IronError {
   fn from(error: WemoError) -> IronError {
     let response = Response::with((status::InternalServerError, "Error"));
