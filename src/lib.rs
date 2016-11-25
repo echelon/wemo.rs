@@ -26,7 +26,7 @@ pub mod url {
 }
 
 
-#[cfg(feature = "subscriptions")] mod subscriptions;
+#[cfg(feature = "subscriptions")] pub mod subscriptions;
 
 mod device;
 mod net;
@@ -40,5 +40,5 @@ pub use device::state::WemoState;
 pub use device::switch::{Switch, WemoResult};
 pub use net::ssdp::DeviceSearch;
 pub use net::ssdp::SsdpResponse;
-pub use subscriptions::Subscriptions;
-pub use subscriptions::Notification;
+
+//#[cfg(feature = "subscriptions")] pub use subscriptions;

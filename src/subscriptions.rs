@@ -28,10 +28,19 @@ use std::thread;
 use std::time::Duration;
 use urlencoded::UrlEncodedQuery;
 
-// TODO: make top level a struct, embed the enum, and include device details in the struct.
-/// Subscription notifications.
+/// Individual subscription notifications.
+pub struct Notification {
+  pub notification_type: NotificationType,
+
+  /// Original device subscribed to, in "IP:PORT" form.
+  /// Note that the port may have been changed by the Wemo device, and that the
+  /// IP could differ if the router changed it.
+  pub subscription_key: String,
+}
+
+/// Each type of supported notification.
 /// More may be added in the future.
-pub enum Notification {
+pub enum NotificationType {
   State { state: WemoState }
 }
 
@@ -104,11 +113,16 @@ impl Subscriptions {
     // TODO: Request headers contain re-subscribe UUID, which should be used
     // instead of subscribing again without a subscription ID.
     let handler = move |request: &mut Request| -> IronResult<Response> {
-      let hashmap = subs.read().unwrap();
-
       let mut body = String::new();
       request.body.read_to_string(&mut body)
           .map_err(|e| WemoError::IoError { cause: e })?;
+
+      // Device is contained in a query string variable, "from".
+      let host = request.get_ref::<UrlEncodedQuery>()
+          .map_err(|_| WemoError::SubscriptionError)
+          .and_then(|hashmap| hashmap.get("from")
+              .and_then(|vec| vec.get(0))
+              .ok_or(WemoError::SubscriptionError))?;
 
       if !body.contains("BinaryState") {
         // TODO: Handle other types of state update.
@@ -117,34 +131,21 @@ impl Subscriptions {
 
       let state = parse_state(&body)?;
 
-      match request.get_ref::<UrlEncodedQuery>() {
-        Ok(ref hashmap) => {
-          println!("Parsed GET request query string:\n {:?}", hashmap);
+      let subscriptions = subs.read()
+          .map_err(|_| WemoError::SubscriptionError)?;
 
-          let s = subs.read().unwrap();
+      let subscription = subscriptions.get(host)
+          .ok_or(WemoError::SubscriptionError)?;
 
-          let p = hashmap.get("from").unwrap().get(0).unwrap();
-
-          println!("from is: {:?}", p);
-
-          match s.get(p) {
-            None => {},
-            Some(val) => {
-
-              println!("Got subscription.");
-
-              if val.callback.is_some() {
-                println!("Calling callback...");
-                let callback = val.callback.as_ref().unwrap();
-                let notification = Notification::State {
-                  state: state,
-                };
-                callback(notification);
-              }
-            }
-          }
-        },
-        Err(ref e) => println!("{:?}", e)
+      if subscription.callback.is_some() {
+        let callback = subscription.callback.as_ref().unwrap();
+        let notification = Notification {
+          notification_type: NotificationType::State {
+            state: state,
+          },
+          subscription_key: host.to_string(),
+        };
+        callback(notification);
       }
 
       Ok(Response::with((status::Ok, "")))
@@ -238,8 +239,6 @@ fn send_subscribe(host: &str,
   let callback_url = format!("http://{}:{}/?from={}",
     local_ip, callback_port, host);
 
-  println!("Callback: {}", callback_url);
-
   let header = format!("\
       SUBSCRIBE /upnp/event/basicevent1 HTTP/1.1\r\n\
       CALLBACK: <{}>\r\n\
@@ -251,16 +250,12 @@ fn send_subscribe(host: &str,
     subscription_ttl_sec,
     host);
 
-  println!("Sending request...");
-
   let mut stream = TcpStream::connect(host)?;
 
   stream.set_read_timeout(Some(Duration::from_secs(1)))?;
   stream.set_write_timeout(Some(Duration::from_secs(1)))?;
 
   stream.write(header.as_bytes())?;
-
-  println!("...subscribed");
 
   // TODO: Read response.
 

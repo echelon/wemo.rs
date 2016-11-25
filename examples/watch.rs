@@ -3,8 +3,9 @@ extern crate wemo;
 extern crate time;
 
 use wemo::DeviceSearch;
-use wemo::Notification;
-use wemo::Subscriptions;
+use wemo::subscriptions::Notification;
+use wemo::subscriptions::NotificationType;
+use wemo::subscriptions::Subscriptions;
 
 pub fn main() {
   let mut subs = Subscriptions::new(3000, 60);
@@ -21,8 +22,8 @@ pub fn main() {
     println!("> Subscribing to: {}", location);
 
     subs.subscribe(&location, |notification: Notification| {
-      match notification {
-        Notification::State { state } => {
+      match notification.notification_type {
+        NotificationType::State { state } => {
           println!("State update: {}", state);
         }
       }
