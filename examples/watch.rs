@@ -22,9 +22,10 @@ pub fn main() {
     println!("> Subscribing to: {}", location);
 
     subs.subscribe(&location, |notification: Notification| {
+      let host = notification.subscription_key;
       match notification.notification_type {
         NotificationType::State { state } => {
-          println!("State update: {}", state);
+          println!("State update from {}: {}", host, state);
         }
       }
     }).unwrap();
