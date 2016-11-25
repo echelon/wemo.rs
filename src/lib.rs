@@ -1,5 +1,6 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
+#[cfg(feature = "subscriptions")] extern crate get_if_addrs;
 #[cfg(feature = "subscriptions")] extern crate iron;
 #[cfg(feature = "subscriptions")] extern crate persistent;
 #[cfg(feature = "subscriptions")] extern crate urlencoded;

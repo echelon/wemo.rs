@@ -2,6 +2,8 @@
 
 use device::state::WemoState;
 use error::WemoError;
+use get_if_addrs::IfAddr;
+use get_if_addrs::get_if_addrs;
 use iron::Iron;
 use iron::IronError;
 use iron::IronResult;
@@ -15,6 +17,7 @@ use std::boxed::Box;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
+use std::net::IpAddr;
 use std::net::TcpStream;
 use std::ops::Fn;
 use std::sync::Arc;
@@ -25,6 +28,7 @@ use std::thread;
 use std::time::Duration;
 use urlencoded::UrlEncodedQuery;
 
+// TODO: make top level a struct, embed the enum, and include device details in the struct.
 /// Subscription notifications.
 /// More may be added in the future.
 pub enum Notification {
@@ -229,11 +233,12 @@ impl Subscriptions {
 fn send_subscribe(host: &str,
                   subscription_ttl_sec: u16,
                   callback_port: u16) -> Result<(), WemoError> {
-  let local_ip = "192.168.1.4"; // TODO: Must get local IP address.
-  println!("TODO: MUST GET LOCAL IP ADDRESS!!!");
+  let local_ip = get_local_ip()?; // TODO: Option to provide IP address.
 
   let callback_url = format!("http://{}:{}/?from={}",
     local_ip, callback_port, host);
+
+  println!("Callback: {}", callback_url);
 
   let header = format!("\
       SUBSCRIBE /upnp/event/basicevent1 HTTP/1.1\r\n\
@@ -253,13 +258,30 @@ fn send_subscribe(host: &str,
   stream.set_read_timeout(Some(Duration::from_secs(1)))?;
   stream.set_write_timeout(Some(Duration::from_secs(1)))?;
 
-  let _ = stream.write(header.as_bytes()); // TODO: Timeout
+  stream.write(header.as_bytes())?;
 
   println!("...subscribed");
 
   // TODO: Read response.
 
   Ok(())
+}
+
+/// Attempt to get the local IP address on the network.
+/// Returns the first non-loopback, local Ipv4 network interface.
+pub fn get_local_ip() -> Result<IpAddr, WemoError> {
+  let ips = get_if_addrs()?;
+
+  // Only non-loopback Ipv4 addresses that aren't docker interfaces.
+  let filtered = ips.iter()
+      .filter(|x| match x.addr { IfAddr::V4(..) => true, _ => false } )
+      .filter(|x| !x.addr.is_loopback())
+      .filter(|x| !x.name.contains("docker"))
+      .collect::<Vec<_>>();
+
+  filtered.get(0)
+      .ok_or(WemoError::NoLocalIp)
+      .map(|x| x.addr.ip())
 }
 
 impl From<WemoError> for IronError {

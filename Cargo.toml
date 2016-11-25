@@ -13,6 +13,7 @@
   path = "src/lib.rs"
 
 [dependencies]
+  get_if_addrs = { version = "0.4.*", optional = true }
   iron = { version = "0.4.*", optional = true }
   lazy_static = "0.2.*"
   log = "0.3.*"
@@ -26,4 +27,4 @@
 [features]
   # Optionally support subscribing to devices.
   default = ["subscriptions"]
-  subscriptions = ["iron", "persistent", "urlencoded"]
+  subscriptions = ["get_if_addrs", "iron", "persistent", "urlencoded"]

@@ -7,6 +7,7 @@ use std::fmt::Result;
 use std::io::Error as IoError;
 
 // TODO: Work in progress unifying errors.
+// TODO: Alphabetize
 /// Represents all of the various types of errors reported by the wemo.rs
 /// library. (TODO: Work in progress unifying errors.)
 #[derive(Debug)]
@@ -33,6 +34,9 @@ pub enum WemoError {
   LockError,
 
   SubscriptionError,
+
+  /// Could not determine local IP address.
+  NoLocalIp,
 }
 
 impl From<IoError> for WemoError {
