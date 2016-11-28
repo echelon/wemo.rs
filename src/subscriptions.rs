@@ -29,7 +29,7 @@ use std::time::Duration;
 use urlencoded::UrlEncodedQuery;
 
 /// Individual subscription notifications.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Notification {
   pub notification_type: NotificationType,
 
@@ -41,7 +41,7 @@ pub struct Notification {
 
 /// Each type of supported notification.
 /// More may be added in the future.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NotificationType {
   State { state: WemoState }
 }
@@ -303,6 +303,7 @@ impl From<WemoError> for IronError {
 // TODO: There aren't enough tests.
 #[cfg(test)]
 mod tests {
+  use device::state::WemoState;
   use std::io::Read;
   use std::io::Write;
   use std::net::IpAddr;
@@ -311,9 +312,10 @@ mod tests {
   use std::net::SocketAddrV4;
   use std::net::TcpListener;
   use std::net::TcpStream;
-  use std::sync::RwLock;
   use std::sync::Arc;
+  use std::sync::RwLock;
   use std::thread;
+  use std::time::Duration;
   use super::*;
 
   fn next_test_port() -> u16 {
@@ -391,9 +393,14 @@ mod tests {
 
     subs.stop_server().unwrap();
 
-    thread::sleep_ms(1000);
-    let notice = notification.read().unwrap();
+    thread::sleep(Duration::from_millis(200)); // FIXME: Bad practice / flaky.
 
+    let notice = notification.read().unwrap();
     assert!(notice.is_some());
+
+    let notice = notice.clone().unwrap();
+    let expected = NotificationType::State { state: WemoState::On };
+    assert_eq!(expected, notice.notification_type);
+    assert_eq!(host, notice.subscription_key);
   }
 }
