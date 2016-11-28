@@ -29,6 +29,7 @@ use std::time::Duration;
 use urlencoded::UrlEncodedQuery;
 
 /// Individual subscription notifications.
+#[derive(Debug, PartialEq)]
 pub struct Notification {
   pub notification_type: NotificationType,
 
@@ -40,6 +41,7 @@ pub struct Notification {
 
 /// Each type of supported notification.
 /// More may be added in the future.
+#[derive(Debug, PartialEq)]
 pub enum NotificationType {
   State { state: WemoState }
 }
@@ -240,10 +242,10 @@ impl Subscriptions {
 }
 
 // NB: Called from thread, can't reference 'self'.
-pub fn send_subscribe(local_ip: IpAddr,
-                      host: &str,
-                      subscription_ttl_sec: u16,
-                      callback_port: u16) -> Result<(), WemoError> {
+fn send_subscribe(local_ip: IpAddr,
+                  host: &str,
+                  subscription_ttl_sec: u16,
+                  callback_port: u16) -> Result<(), WemoError> {
   let callback_url = format!("http://{}:{}/?from={}",
     local_ip, callback_port, host);
 
@@ -298,19 +300,24 @@ impl From<WemoError> for IronError {
   }
 }
 
+// TODO: There aren't enough tests.
 #[cfg(test)]
 mod tests {
   use std::io::Read;
+  use std::io::Write;
   use std::net::IpAddr;
   use std::net::Ipv4Addr;
   use std::net::SocketAddr;
   use std::net::SocketAddrV4;
   use std::net::TcpListener;
+  use std::net::TcpStream;
+  use std::sync::RwLock;
+  use std::sync::Arc;
   use std::thread;
   use super::*;
 
   fn next_test_port() -> u16 {
-    // Taken from rust-utp, since `std::net::test` not available.
+    // Taken from rust-utp, since `std::net::test` not available to import.
     use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
     static NEXT_OFFSET: AtomicUsize = ATOMIC_USIZE_INIT;
     const BASE_PORT: u16 = 9600;
@@ -331,7 +338,7 @@ mod tests {
 
     thread::spawn(move || {
       let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-      send_subscribe(local_ip, &host, 600, 8080).unwrap();
+      super::send_subscribe(local_ip, &host, 600, 8080).unwrap();
     });
 
     let mut stream = listener.accept().unwrap().0;
@@ -348,6 +355,45 @@ mod tests {
         socket_addr.port(),
         socket_addr.port());
 
-    assert_eq!(buf, expected);
+    assert_eq!(expected, buf);
+  }
+
+  #[test]
+  fn test_callback_invocation() {
+    let port = next_test_port();
+    let mut subs = Subscriptions::new(port, 1000);
+
+    let host = format!("localhost:{}", port);
+
+    let notification = Arc::new(RwLock::new(None)); // An Option<Notification>
+    let notify = notification.clone();
+
+    // NB: We start the server first since we're going to use it as a stand-in
+    // for the subscription endpoint. (Really lame, but I'm lazy.)
+    subs.start_server().unwrap();
+
+    // NB: This will fail to subscribe, but demonstrates callbacks work.
+    let _r = subs.subscribe(&host, move |n| {
+      let mut writable = notify.write().unwrap();
+      *writable = Some(n);
+    });
+
+    let mut stream = TcpStream::connect(("localhost", port)).unwrap();
+
+    stream.write_fmt(format_args!("\
+      POST /?from={} HTTP/1.0\r\n\
+      Host: localhost:{}\r\n\
+      Content-Length: 28\r\n\
+      \r\n\
+      <BinaryState>1</BinaryState>",
+      host,
+      port)).unwrap();
+
+    subs.stop_server().unwrap();
+
+    thread::sleep_ms(1000);
+    let notice = notification.read().unwrap();
+
+    assert!(notice.is_some());
   }
 }
