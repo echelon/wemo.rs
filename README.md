@@ -14,21 +14,10 @@ for nonblocking IO and timeouts.
 
 TODO
 ----
-
-- Finish up the library for a `0.1.0` release. (Don't release the code as
-  horrendous as it is now.)
-
-  - Eliminate dependencies: `hyper`, `time`, `toml`.
-
-  - Testing and CI builds.
-
-  - Documentation.
-
-- Support for querying device state (eg. Insight power consumption).
-
-- Separate project: network microservice incorporating *wemo.rs* for
-  control and coordination of all WeMo devices on the local network
-  (essentially a proxyaggregation protocol).
+- Refactor code
+- Improve subscriptions
+- Add more tests
+- Cleanup and prepare for `0.1.0` release.
 
 License
 -------
