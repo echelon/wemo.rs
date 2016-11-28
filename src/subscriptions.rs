@@ -84,7 +84,10 @@ impl Subscriptions {
   pub fn subscribe<F>(&self, host: &str, callback: F)
                       -> Result<(), WemoError>
                       where F: Fn(Notification) + Sync + Send + 'static {
-    send_subscribe(host, self.subscription_ttl_sec, self.callback_port)?;
+    let local_ip = get_local_ip()?;
+
+    send_subscribe(local_ip, host, self.subscription_ttl_sec,
+        self.callback_port)?;
 
     let subscription = Subscription { callback: Some(Box::new(callback)) };
 
@@ -110,7 +113,7 @@ impl Subscriptions {
 
     let subs = self.subscriptions.clone();
 
-    // TODO: Request headers contain re-subscribe UUID, which should be used
+    // TODO: Request headers contain a re-subscribe UUID, which should be used
     // instead of subscribing again without a subscription ID.
     let handler = move |request: &mut Request| -> IronResult<Response> {
       let mut body = String::new();
@@ -206,8 +209,14 @@ impl Subscriptions {
         // TODO: A single failure can hold things up, causing missed events
         // from temporarily dropped subscriptions. Also, I need to mitigate
         // change of ports (and IP addresses).
+        let local_ip = match get_local_ip() {
+          Err(_) => continue, // TODO: LOG
+          Ok(ip) => ip,
+        };
+
         for (host, _subscription) in subs.iter() {
-          let _r = send_subscribe(host, subscription_ttl_sec, callback_port);
+          let _r = send_subscribe(local_ip, host, subscription_ttl_sec,
+              callback_port);
         }
       }
     });
@@ -231,11 +240,10 @@ impl Subscriptions {
 }
 
 // NB: Called from thread, can't reference 'self'.
-fn send_subscribe(host: &str,
-                  subscription_ttl_sec: u16,
-                  callback_port: u16) -> Result<(), WemoError> {
-  let local_ip = get_local_ip()?; // TODO: Option to provide IP address.
-
+pub fn send_subscribe(local_ip: IpAddr,
+                      host: &str,
+                      subscription_ttl_sec: u16,
+                      callback_port: u16) -> Result<(), WemoError> {
   let callback_url = format!("http://{}:{}/?from={}",
     local_ip, callback_port, host);
 
@@ -265,6 +273,7 @@ fn send_subscribe(host: &str,
 /// Attempt to get the local IP address on the network.
 /// Returns the first non-loopback, local Ipv4 network interface.
 pub fn get_local_ip() -> Result<IpAddr, WemoError> {
+  // TODO: Get rid of this dependency. Didn't realize it was GPL.
   let ips = get_if_addrs()?;
 
   // Only non-loopback Ipv4 addresses that aren't docker interfaces.
@@ -286,5 +295,59 @@ impl From<WemoError> for IronError {
       error: Box::new(error),
       response: response,
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::io::Read;
+  use std::net::IpAddr;
+  use std::net::Ipv4Addr;
+  use std::net::SocketAddr;
+  use std::net::SocketAddrV4;
+  use std::net::TcpListener;
+  use std::thread;
+  use super::*;
+
+  fn next_test_port() -> u16 {
+    // Taken from rust-utp, since `std::net::test` not available.
+    use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
+    static NEXT_OFFSET: AtomicUsize = ATOMIC_USIZE_INIT;
+    const BASE_PORT: u16 = 9600;
+    BASE_PORT + NEXT_OFFSET.fetch_add(1, Ordering::Relaxed) as u16
+  }
+
+  fn next_test_ip4() -> SocketAddr {
+    // Taken from rust standard library tests.
+    let port = next_test_port();
+    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port))
+  }
+
+  #[test]
+  fn test_send_subscribe() {
+    let socket_addr = next_test_ip4();
+    let listener = TcpListener::bind(&socket_addr).unwrap();
+    let host = format!("localhost:{}", socket_addr.port());
+
+    thread::spawn(move || {
+      let local_ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+      send_subscribe(local_ip, &host, 600, 8080).unwrap();
+    });
+
+    let mut stream = listener.accept().unwrap().0;
+    let mut buf = String::new();
+    stream.read_to_string(&mut buf).unwrap();
+
+    let expected = format!("\
+      SUBSCRIBE /upnp/event/basicevent1 HTTP/1.1\r\n\
+      CALLBACK: <http://127.0.0.1:8080/?from=localhost:{}>\r\n\
+      NT: upnp:event\r\n\
+      TIMEOUT: Second-600\r\n\
+      Host: localhost:{}\r\n\
+      \r\n",
+        socket_addr.port(),
+        socket_addr.port());
+
+    assert_eq!(buf, expected);
   }
 }

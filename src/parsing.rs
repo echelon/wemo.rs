@@ -30,7 +30,6 @@ pub fn parse_state(xml: &str) -> Result<WemoState, WemoError> {
 #[cfg(test)]
 mod tests {
   use device::state::WemoState;
-  use error::WemoError;
   use super::*;
 
   #[test]
