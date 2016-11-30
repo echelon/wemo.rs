@@ -1,5 +1,8 @@
 // Copyright (c) 2015 Brandon Thomas <bt@brand.io>
 
+#![doc(html_logo_url = "http://i.imgur.com/bkgoCdy.png", 
+       html_favicon_url = "http://i.imgur.com/bkgoCdy.png")]
+
 #[cfg(feature = "subscriptions")] extern crate get_if_addrs;
 #[cfg(feature = "subscriptions")] extern crate iron;
 #[cfg(feature = "subscriptions")] extern crate persistent;
@@ -39,3 +42,4 @@ pub use device::state::WemoState;
 pub use device::switch::{Switch, WemoResult};
 pub use net::ssdp::DeviceSearch;
 pub use net::ssdp::SsdpResponse;
+
