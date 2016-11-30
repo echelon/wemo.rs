@@ -7,6 +7,7 @@
   license = "BSD-4-Clause"
   readme = "README.md"
   repository = "https://github.com/echelon/wemo.rs"
+  documentation = "https://docs.rs/wemo"
 
 [lib]
   name = "wemo"
