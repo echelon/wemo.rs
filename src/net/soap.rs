@@ -129,7 +129,8 @@ impl Handler for SoapClient {
   fn timeout(&mut self, event_loop: &mut EventLoop<SoapClient>,
              _token: Token) {
     debug!(target: "wemo", "SoapClient received timeout");
-    self.stream_socket.shutdown(Shutdown::Both).unwrap();
+    // NB: Shutdown seems to error if the wrong port was connected to.
+    let _r = self.stream_socket.shutdown(Shutdown::Both);
     event_loop.shutdown();
   }
 }

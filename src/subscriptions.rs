@@ -360,6 +360,7 @@ mod tests {
     assert_eq!(expected, buf);
   }
 
+  // FIXME/NB: This test fails when not connected to a network. *facepalm*
   #[test]
   fn test_callback_invocation() {
     let port = next_test_port();

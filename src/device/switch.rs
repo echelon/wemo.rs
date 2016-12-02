@@ -11,6 +11,7 @@ use net::soap::{SoapClient, SoapRequest};
 use net::ssdp::{DeviceSearch, SsdpResponse};
 use std::fmt::{Display, Error, Formatter};
 use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::RwLock;
 use super::SerialNumber;
 use super::state::WemoState::{Off, On, OnWithoutLoad};
@@ -57,10 +58,6 @@ pub struct Switch {
   /// retries.
   port: RwLock<Option<u16>>,
 
-  // TODO: GET RID OF THIS.
-  /// Location of the device in the format `http://ip_address:port`.
-  location: Url,
-
   // TODO: Make private. Only temporary.
   /// The device's unique serial number.
   pub serial_number: Option<SerialNumber>,
@@ -71,11 +68,23 @@ impl Switch {
   /// Switch CTOR.
   #[deprecated(since="0.0.11")]
   pub fn new(url: Url) -> Switch {
+    let mut maybe_ip_addr = None;
+
+    let host = url.host();
+    if host.is_some() {
+      maybe_ip_addr = match url.host().unwrap() {
+        Host::Domain(_) => None,
+        Host::Ipv4(ip) => Some(IpAddr::V4(ip)),
+        Host::Ipv6(ip) => Some(IpAddr::V6(ip)),
+      };
+    }
+
     Switch {
-      dynamic_ip_address: RwLock::new(None),
-      port: RwLock::new(None),
+      // NB: Without an IP, we will never be able to talk to the device.
+      // This is acceptable since this CTOR is deprecated / going away.
+      dynamic_ip_address: RwLock::new(maybe_ip_addr),
+      port: RwLock::new(url.port()),
       device_identifier: DeviceIdentifier::Unimplemented,
-      location: url.clone(),
       serial_number: None,
     }
   }
@@ -83,35 +92,48 @@ impl Switch {
   /// Construct a device that lives behind a static IP address.
   /// We won't need to issue later SSDP searches to find or relocate the device.
   pub fn from_static_ip(ip_address: IpAddr) -> Switch {
-    // FIXME: Unsafe code is bad, but this isn't going to stay for long.
-    let location = Url::parse(
-      &format!("http://{}:{}", ip_address, DEFAULT_API_PORT)).unwrap();
     Switch {
       device_identifier: DeviceIdentifier::StaticIp(ip_address),
       dynamic_ip_address: RwLock::new(None),
       port: RwLock::new(None),
-      location: location,
       serial_number: None,
     }
   }
 
-  /// Construct a device that lives behind a static IP address and uses the
-  /// given port (ports are subject to change).
-  /// We won't need to issue later SSDP searches to find or relocate the device.
+  /// Also include port (ports are subject to change).
   pub fn from_static_ip_and_port(ip_address: IpAddr, port: u16) -> Switch {
-    // FIXME: Unsafe code is bad, but this isn't going to stay for long.
-    let location = Url::parse(
-      &format!("http://{}:{}", ip_address, port)).unwrap();
     Switch {
       device_identifier: DeviceIdentifier::StaticIp(ip_address),
       dynamic_ip_address: RwLock::new(None),
       port: RwLock::new(Some(port)),
-      location: location,
+      serial_number: None,
+    }
+  }
+
+  /// Construct a device that lives behind a static IP address.
+  /// We may need to relocate this device later if it changes IP by issuing SSDP
+  /// searches.
+  pub fn from_dynamic_ip(ip_address: IpAddr) -> Switch {
+    Switch {
+      device_identifier: DeviceIdentifier::Unimplemented, // TODO: Not permanent!
+      dynamic_ip_address: RwLock::new(Some(ip_address)),
+      port: RwLock::new(None),
+      serial_number: None,
+    }
+  }
+
+  /// Also include port (ports are subject to change).
+  pub fn from_dynamic_ip_and_port(ip_address: IpAddr, port: u16) -> Switch {
+    Switch {
+      device_identifier: DeviceIdentifier::Unimplemented, // TODO: Not permanent!
+      dynamic_ip_address: RwLock::new(Some(ip_address)),
+      port: RwLock::new(Some(port)),
       serial_number: None,
     }
   }
 
   /// Switch CTOR.
+  #[allow(deprecated)]
   #[deprecated(since="0.0.11")]
   pub fn from_url(url: &str) -> Result<Switch, ParseError> {
     match Url::parse(url) {
@@ -123,54 +145,48 @@ impl Switch {
   /// Switch CTOR.
   #[deprecated(since="0.0.11")]
   pub fn from_ip_and_port(ip_addr: &str, port: u16) -> Switch {
-    // FIXME: No unwrap. This library has bigger problems than this, though.
-    let url = Url::parse(&format!("http://{}:{}", ip_addr, port)).unwrap();
+    // TODO: Unsafe. Going away, though!
+    let ip_addr = IpAddr::from_str(ip_addr).unwrap();
     Switch {
-      dynamic_ip_address: RwLock::new(None),
+      dynamic_ip_address: RwLock::new(Some(ip_addr)),
       port: RwLock::new(Some(port)),
       device_identifier: DeviceIdentifier::Unimplemented,
-      location: url.clone(),
       serial_number: None,
     }
   }
 
+  // TODO: TEST.
   /// Switch CTOR.
   fn from_search_result(search_result: &SsdpResponse) -> Switch {
-    // FIXME: Super lame and unsafe.
-    let host = search_result.setup_url.host_str().unwrap();
-    let port = search_result.port;
-    let url = Url::parse(&format!("http://{}:{}", host, port)).unwrap();
-
     Switch {
       dynamic_ip_address: RwLock::new(Some(search_result.ip_address.clone())),
       port: RwLock::new(Some(search_result.port)),
       device_identifier: DeviceIdentifier::Unimplemented,
-      location: url,
       serial_number: Some(search_result.serial_number.clone()),
     }
   }
 
   /// Turn the device on.
   pub fn turn_on(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning on: {}", self.location);
+    info!(target: "wemo", "Turning on: {}", self.location());
     self.set_state(On, timeout)
   }
 
   /// Turn the device on.
   pub fn turn_on_with_retry(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning on with retry: {}", self.location);
+    info!(target: "wemo", "Turning on with retry: {}", self.location());
     self.set_state_with_retry(On, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning off: {}", self.location);
+    info!(target: "wemo", "Turning off: {}", self.location());
     self.set_state(Off, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off_with_retry(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning off with retry: {}", self.location);
+    info!(target: "wemo", "Turning off with retry: {}", self.location());
     self.set_state_with_retry(Off, timeout)
   }
 
@@ -527,32 +543,16 @@ impl Switch {
     }
   }
 
-  /// Get the base URL.
-  #[inline]
-  pub fn base_url(&self) -> &Url {
-    &self.location
-  }
-
-  /// Get the "setup"/info URL.
-  #[inline]
-  pub fn setup_url(&self) -> Url {
-    let mut url = self.location.clone();
-    url.set_path("/setup.xml");
-    url
-  }
-
-  /// Get the "basic event" URL.
-  #[inline]
-  pub fn basic_event_url(&self)-> Url {
-    let mut url = self.location.clone();
-    url.set_path("/upnp/control/basicevent1");
-    url
+  /// Simply for info logging. Not a useful format for converting to a URL.
+  pub fn location(&self) -> String {
+    // TODO: return just "ip:port" or "ip" if no port.
+    format!("{:?}:{:?}", self.get_ip_address(), self.get_port())
   }
 }
 
 impl Display for Switch {
   fn fmt(&self, f : &mut Formatter) -> Result<(), Error> {
-    write!(f, "Switch<{}>", self.location)
+    write!(f, "Switch<{}>", self.location())
   }
 }
 
@@ -579,7 +579,6 @@ mod tests {
       device_identifier: DeviceIdentifier::Unimplemented, // no static IP
       dynamic_ip_address: RwLock::new(Some(ip("1.1.1.1"))),
       port: RwLock::new(None),
-      location: Url::parse("http://localhost/").unwrap(),
       serial_number: None,
     };
 
@@ -591,7 +590,6 @@ mod tests {
       device_identifier: DeviceIdentifier::StaticIp(ip("2.2.2.2")),
       dynamic_ip_address: RwLock::new(Some(ip("3.3.3.3"))),
       port: RwLock::new(None),
-      location: Url::parse("http://localhost/").unwrap(),
       serial_number: None,
     };
 
@@ -604,7 +602,6 @@ mod tests {
       device_identifier: DeviceIdentifier::Unimplemented,
       dynamic_ip_address: RwLock::new(None),
       port: RwLock::new(None),
-      location: Url::parse("http://localhost/").unwrap(),
       serial_number: None,
     };
 
@@ -643,7 +640,6 @@ mod tests {
       DeviceIdentifier::Unimplemented,
       dynamic_ip_address: RwLock::new(None),
       port: RwLock::new(None),
-      location: Url::parse("http://localhost/").unwrap(),
       serial_number: None,
     };
 
