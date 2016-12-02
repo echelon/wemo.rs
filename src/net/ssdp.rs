@@ -9,7 +9,7 @@ use regex::Regex;
 use url::Url;
 
 use std::collections::HashMap;
-use std::net::{AddrParseError, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 
 use device::SerialNumber;
@@ -28,7 +28,7 @@ const TIMER_TIMEOUT: Token = Token(4);
 #[derive(Clone,Debug)]
 pub struct SsdpResponse {
   pub serial_number: SerialNumber,
-  pub ip_address: Ipv4Addr,
+  pub ip_address: IpAddr,
   pub port: u16,
   pub setup_url: Url,
 }
@@ -42,7 +42,7 @@ pub struct DeviceSearch {
   target_serial: Option<SerialNumber>,
 
   /// If present, search will end as soon as the device is found.
-  target_ip_address: Option<Ipv4Addr>,
+  target_ip_address: Option<IpAddr>,
 
   /// Socket for SSDP search.
   socket: UdpSocket,
@@ -52,7 +52,7 @@ impl DeviceSearch {
 
   /// DeviceSearch CTOR.
   pub fn new() -> DeviceSearch {
-    let socket = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
+    let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
     let udp_socket = UdpSocket::v4().unwrap();
 
     udp_socket.bind(&socket).unwrap();
@@ -92,7 +92,7 @@ impl DeviceSearch {
 
   /// Search for a particular device by IP address.
   /// Exits early when the target device is found.
-  pub fn search_for_ip(&mut self, target: &Ipv4Addr, timeout_ms: u64)
+  pub fn search_for_ip(&mut self, target: &IpAddr, timeout_ms: u64)
       -> Option<&SsdpResponse> {
     self.target_ip_address = Some(target.clone());
     self.search(timeout_ms);
@@ -177,7 +177,7 @@ impl DeviceSearch {
     if parsed_response.is_some() {
       let device = parsed_response.unwrap();
       let serial_number = device.serial_number.clone();
-      let ip_address: Ipv4Addr = device.ip_address.clone();
+      let ip_address: IpAddr = device.ip_address.clone();
 
       self.found_devices.insert(serial_number.clone(), device);
 
@@ -264,8 +264,8 @@ fn parse_search_result(response_headers: &str) -> Option<SsdpResponse> {
   let host = url.host_str().unwrap(); // FIXME
   let port = url.port().unwrap_or(80);
 
-  let ip_address : Result<Ipv4Addr, AddrParseError>
-      = Ipv4Addr::from_str(host);
+  let ip_address : Result<IpAddr, AddrParseError>
+      = IpAddr::from_str(host);
 
   if ip_address.is_err() { return None; }
 

@@ -6,32 +6,57 @@
 
 pub use time::Duration;
 pub use url::{Host, Url};
-
-use std::net::Ipv4Addr;
-use std::str::FromStr;
+use error::WemoError;
+use net::soap::{SoapClient, SoapRequest};
+use net::ssdp::{DeviceSearch, SsdpResponse};
 use std::fmt::{Display, Error, Formatter};
-
+use std::net::IpAddr;
+use std::str::FromStr;
+use std::sync::RwLock;
+use super::SerialNumber;
+use super::state::WemoState::{Off, On, OnWithoutLoad};
+use super::state::WemoState;
 use time::PreciseTime;
 use url::ParseError;
 use xml::find_tag_value;
 
-use super::SerialNumber;
-use super::state::WemoState::{Off, On, OnWithoutLoad};
-use super::state::WemoState;
-use error::WemoError;
-use net::soap::{SoapClient, SoapRequest};
-use net::ssdp::{DeviceSearch, SsdpResponse};
-
 pub type WemoResult = Result<WemoState, WemoError>;
 
+/// Default Wemo API port (HTTP).
+/// Wemo devices change ports occasionally by incrementing the port number.
+const DEFAULT_API_PORT: u16 = 49153;
+
 const FIRST_ATTEMPT_TIMEOUT: i64 = 300;
+
+// A method of identifying a WeMo device on the network. When a WeMo device
+// goes offline, this is what we use to find it again.
+pub enum DeviceIdentifier {
+  // A static IP address is the best way to find a device.
+  StaticIp(IpAddr),
+  // The human-given name of the WeMo device.
+  // This is case sensitive and must match exactly.
+  // TODO: DeviceName(String),
+  // The WeMo serial number unique to the device.
+  // TODO: SerialNumber(String),
+  // Transient value while this is unimplemented.
+  Unimplemented, // TODO: Remove.
+}
 
 // TODO: Problems between internalized client, mutability, and clonability
 
 /// Represents a Wemo Switch device.
 pub struct Switch {
-  /// Location of the device in the format `http://ip_address:port`.
-  location: Url,
+  /// How we identify the device on the network. A static IP address is optimal.
+  device_identifier: DeviceIdentifier,
+
+  /// Location of the device if a dynamic IP address is used.
+  dynamic_ip_address: RwLock<Option<IpAddr>>,
+
+  /// Last known port the device used.
+  /// Wemo devices are notorious for occasionally changing ports, so we keep
+  /// track of the last one we found it using to reduce failed requests and
+  /// retries.
+  port: RwLock<Option<u16>>,
 
   // TODO: Make private. Only temporary.
   /// The device's unique serial number.
@@ -41,16 +66,75 @@ pub struct Switch {
 /// Functions for WeMo Switch.
 impl Switch {
   /// Switch CTOR.
-  #[inline]
+  #[deprecated(since="0.0.11")]
   pub fn new(url: Url) -> Switch {
+    let mut maybe_ip_addr = None;
+
+    let host = url.host();
+    if host.is_some() {
+      maybe_ip_addr = match url.host().unwrap() {
+        Host::Domain(_) => None,
+        Host::Ipv4(ip) => Some(IpAddr::V4(ip)),
+        Host::Ipv6(ip) => Some(IpAddr::V6(ip)),
+      };
+    }
+
     Switch {
-      location: url.clone(),
+      // NB: Without an IP, we will never be able to talk to the device.
+      // This is acceptable since this CTOR is deprecated / going away.
+      dynamic_ip_address: RwLock::new(maybe_ip_addr),
+      port: RwLock::new(url.port()),
+      device_identifier: DeviceIdentifier::Unimplemented,
+      serial_number: None,
+    }
+  }
+
+  /// Construct a device that lives behind a static IP address.
+  /// We won't need to issue later SSDP searches to find or relocate the device.
+  pub fn from_static_ip(ip_address: IpAddr) -> Switch {
+    Switch {
+      device_identifier: DeviceIdentifier::StaticIp(ip_address),
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      serial_number: None,
+    }
+  }
+
+  /// Also include port (ports are subject to change).
+  pub fn from_static_ip_and_port(ip_address: IpAddr, port: u16) -> Switch {
+    Switch {
+      device_identifier: DeviceIdentifier::StaticIp(ip_address),
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(Some(port)),
+      serial_number: None,
+    }
+  }
+
+  /// Construct a device that lives behind a static IP address.
+  /// We may need to relocate this device later if it changes IP by issuing SSDP
+  /// searches.
+  pub fn from_dynamic_ip(ip_address: IpAddr) -> Switch {
+    Switch {
+      device_identifier: DeviceIdentifier::Unimplemented, // TODO: Not permanent!
+      dynamic_ip_address: RwLock::new(Some(ip_address)),
+      port: RwLock::new(None),
+      serial_number: None,
+    }
+  }
+
+  /// Also include port (ports are subject to change).
+  pub fn from_dynamic_ip_and_port(ip_address: IpAddr, port: u16) -> Switch {
+    Switch {
+      device_identifier: DeviceIdentifier::Unimplemented, // TODO: Not permanent!
+      dynamic_ip_address: RwLock::new(Some(ip_address)),
+      port: RwLock::new(Some(port)),
       serial_number: None,
     }
   }
 
   /// Switch CTOR.
-  #[inline]
+  #[allow(deprecated)]
+  #[deprecated(since="0.0.11")]
   pub fn from_url(url: &str) -> Result<Switch, ParseError> {
     match Url::parse(url) {
       Ok(parsed_url) => { Ok(Switch::new(parsed_url)) },
@@ -59,48 +143,50 @@ impl Switch {
   }
 
   /// Switch CTOR.
-  #[inline]
+  #[deprecated(since="0.0.11")]
   pub fn from_ip_and_port(ip_addr: &str, port: u16) -> Switch {
-    // FIXME: No unwrap. This library has bigger problems than this, though.
-    let url = Url::parse(&format!("http://{}:{}", ip_addr, port)).unwrap();
-    Switch::new(url)
+    // TODO: Unsafe. Going away, though!
+    let ip_addr = IpAddr::from_str(ip_addr).unwrap();
+    Switch {
+      dynamic_ip_address: RwLock::new(Some(ip_addr)),
+      port: RwLock::new(Some(port)),
+      device_identifier: DeviceIdentifier::Unimplemented,
+      serial_number: None,
+    }
   }
 
+  // TODO: TEST.
   /// Switch CTOR.
-  #[inline]
   fn from_search_result(search_result: &SsdpResponse) -> Switch {
-    // FIXME: Super lame and unsafe.
-    let host = search_result.setup_url.host_str().unwrap();
-    let port = search_result.port;
-    let url = Url::parse(&format!("http://{}:{}", host, port)).unwrap();
-
     Switch {
-      location: url,
+      dynamic_ip_address: RwLock::new(Some(search_result.ip_address.clone())),
+      port: RwLock::new(Some(search_result.port)),
+      device_identifier: DeviceIdentifier::Unimplemented,
       serial_number: Some(search_result.serial_number.clone()),
     }
   }
 
   /// Turn the device on.
   pub fn turn_on(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning on: {}", self.location);
+    info!(target: "wemo", "Turning on: {}", self.name());
     self.set_state(On, timeout)
   }
 
   /// Turn the device on.
   pub fn turn_on_with_retry(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning on with retry: {}", self.location);
+    info!(target: "wemo", "Turning on with retry: {}", self.name());
     self.set_state_with_retry(On, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning off: {}", self.location);
+    info!(target: "wemo", "Turning off: {}", self.name());
     self.set_state(Off, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off_with_retry(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning off with retry: {}", self.location);
+    info!(target: "wemo", "Turning off with retry: {}", self.name());
     self.set_state_with_retry(Off, timeout)
   }
 
@@ -186,19 +272,8 @@ impl Switch {
 
   /// Get the current state of the device.
   pub fn get_state(&self, timeout: Duration) -> WemoResult {
-    let ip_address = match self.get_ip_address() {
-      Some(ip) => { ip },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
-
-    let port = match self.get_port() {
-      Some(port) => { port },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
+    let ip_address = self.get_ip_address().ok_or(WemoError::NoLocalIp)?;
+    let port = self.get_port().unwrap_or(DEFAULT_API_PORT);
 
     let mut client = match SoapClient::connect(ip_address, port) {
       Some(c) => { c },
@@ -248,19 +323,8 @@ impl Switch {
 
   /// Set the current state of the device.
   pub fn set_state(&self, state: WemoState, timeout: Duration) -> WemoResult {
-    let ip_address = match self.get_ip_address() {
-      Some(ip) => { ip },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
-
-    let port = match self.get_port() {
-      Some(port) => { port },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
+    let ip_address = self.get_ip_address().ok_or(WemoError::NoLocalIp)?;
+    let port = self.get_port().unwrap_or(DEFAULT_API_PORT);
 
     let mut client = match SoapClient::connect(ip_address, port) {
       Some(c) => { c },
@@ -385,25 +449,36 @@ impl Switch {
     switch.set_state(state.clone(), remaining)
   }
 
-  /// Get the currently known IP address.
-  pub fn get_ip_address(&self) -> Option<Ipv4Addr> {
-    self.location.host_str().and_then(|host| {
-      match Ipv4Addr::from_str(&host) {
-        Err(_) => { None },
-        Ok(ip) => { Some(ip) },
-      }
-    })
+  /// Returns the static IP if the Wemo was configured with a static IP,
+  /// otherwise returns the last cached IP address (which may not be set).
+  pub fn get_ip_address(&self) -> Option<IpAddr> {
+    match self.device_identifier {
+      DeviceIdentifier::StaticIp(ip) => Some(ip.clone()),
+      _ => {
+        self.dynamic_ip_address.read()
+            .ok()
+            .and_then(|ip| ip.clone())
+      },
+    }
   }
 
-  /// Get the currently known port.
-  #[inline]
+  /// Get the currently known port. If we haven't manually set the port or
+  /// talked to the Wemo device yet, the port will not be set.
   pub fn get_port(&self) -> Option<u16> {
-    self.location.port()
+    self.port.read()
+        .ok()
+        .and_then(|port| *port)
   }
 
+  // TODO: Refactor this to not create a new 'Switch'. Use interior mutability
+  // and return a boolean if the device was found.
+  // rename pub fn locate(&self, Duration) -> bool, but recommend against use
   /// Attempt to find the Switch on the network via SSDP.
+  /// Both the IP address and port will be updated if they changed. (The IP
+  /// address will not be updated if the device is configured to use a static
+  /// IP.)
   pub fn relocate(&self, timeout: Duration) -> Option<Switch> {
-    if self.serial_number.is_some() {
+    let result = if self.serial_number.is_some() {
       // Guaranteed to be the same device unless there is spoofing
       // (or Belkin assigned duplicate serial numbers).
       self.relocate_by_serial(timeout)
@@ -411,7 +486,14 @@ impl Switch {
       // Won't necessarily be the same device if DHCP has reassigned
       // the address.
       self.relocate_by_ip(timeout)
+    };
+
+    // Update existing Switch state.
+    if result.is_some() {
+      self.update_location(&result.as_ref().unwrap());
     }
+
+    result
   }
 
   fn relocate_by_serial(&self, timeout: Duration) -> Option<Switch> {
@@ -442,31 +524,161 @@ impl Switch {
     }
   }
 
-  /// Get the base URL.
-  #[inline]
-  pub fn base_url(&self) -> &Url {
-    &self.location
+  // TODO: Take an SsdpResponse instead.
+  // Update the IP and port from a search result using internal mutability.
+  fn update_location(&self, search_result: &Switch) {
+    match self.port.write() {
+      Err(_) => {}, // Ignore.
+      Ok(mut port) => { *port = search_result.get_port(); },
+    }
+
+    match self.device_identifier {
+      DeviceIdentifier::StaticIp(_) => {}, // No need to update.
+      _ => {
+        match self.dynamic_ip_address.write() {
+          Err(_) => {}, // Ignore.
+          Ok(mut ip_addr) => { *ip_addr = search_result.get_ip_address(); },
+        }
+      },
+    }
   }
 
-  /// Get the "setup"/info URL.
-  #[inline]
-  pub fn setup_url(&self) -> Url {
-    let mut url = self.location.clone();
-    url.set_path("/setup.xml");
-    url
-  }
-
-  /// Get the "basic event" URL.
-  #[inline]
-  pub fn basic_event_url(&self)-> Url {
-    let mut url = self.location.clone();
-    url.set_path("/upnp/control/basicevent1");
-    url
+  /// Return the IP/port, name, or other identifier for logging.
+  /// Not a useful format for converting into a URL.
+  pub fn name(&self) -> String {
+    match self.get_ip_address() {
+      None => "UNKNOWN".to_string(), // TODO: Use serial instead, if available.
+      Some(ip_addr) => {
+        match self.get_port() {
+          None => format!("{}", ip_addr),
+          Some(port) => format!("{}:{}", ip_addr, port),
+        }
+      }
+    }
   }
 }
 
 impl Display for Switch {
   fn fmt(&self, f : &mut Formatter) -> Result<(), Error> {
-    write!(f, "Switch<{}>", self.location)
+    write!(f, "Switch<{}>", self.name())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::net::IpAddr;
+  use std::str::FromStr;
+  use std::sync::RwLock;
+  use super::*;
+
+  fn ip(ip_address: &str) -> IpAddr {
+    IpAddr::from_str(ip_address).unwrap()
+  }
+
+  #[test]
+  fn test_get_ip_address_with_static_ip() {
+    let switch = Switch::from_static_ip(ip("127.0.0.1"));
+    assert_eq!(Some(ip("127.0.0.1")), switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_get_ip_address_with_dynamic_ip() {
+    let switch = Switch {
+      device_identifier: DeviceIdentifier::Unimplemented, // no static IP
+      dynamic_ip_address: RwLock::new(Some(ip("1.1.1.1"))),
+      port: RwLock::new(None),
+      serial_number: None,
+    };
+
+    assert_eq!(Some(ip("1.1.1.1")), switch.get_ip_address());
+
+    // If it were to have a static and dynamic IP (not allowed), the static IP
+    // is the one that is returned.
+    let switch = Switch {
+      device_identifier: DeviceIdentifier::StaticIp(ip("2.2.2.2")),
+      dynamic_ip_address: RwLock::new(Some(ip("3.3.3.3"))),
+      port: RwLock::new(None),
+      serial_number: None,
+    };
+
+    assert_eq!(Some(ip("2.2.2.2")), switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_get_ip_address_with_no_ip() {
+    let switch = Switch {
+      device_identifier: DeviceIdentifier::Unimplemented,
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      serial_number: None,
+    };
+
+    assert_eq!(None, switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_get_port_with_port_set() {
+    let switch = Switch::from_static_ip(ip("1.1.1.1"));
+    assert_eq!(None, switch.get_port());
+  }
+
+  #[test]
+  fn test_get_port_without_port_set() {
+    let switch = Switch::from_static_ip_and_port(ip("1.1.1.1"), 1234);
+    assert_eq!(Some(1234), switch.get_port());
+  }
+
+  #[test]
+  fn test_update_location_with_static_ip() {
+    let switch = Switch::from_static_ip_and_port(ip("1.1.1.1"), 1111);
+    let found = Switch::from_static_ip_and_port(ip("2.2.2.2"), 2222);
+
+    switch.update_location(&found);
+
+    // Port updates.
+    assert_eq!(Some(2222), switch.get_port());
+    // Static IPs do not get updated, though!
+    assert_eq!(Some(ip("1.1.1.1")), switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_update_location_with_dynamic_ip() {
+    let switch = Switch {
+      device_identifier: DeviceIdentifier::Unimplemented,
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      serial_number: None,
+    };
+
+    let found = Switch::from_static_ip_and_port(ip("2.2.2.2"), 2222);
+
+    switch.update_location(&found);
+
+    // Port and IP address are updated.
+    assert_eq!(Some(2222), switch.get_port());
+    assert_eq!(Some(ip("2.2.2.2")), switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_name_with_ip_and_port() {
+    let switch = Switch::from_static_ip_and_port(ip("1.2.3.4"), 1234);
+    assert_eq!("1.2.3.4:1234".to_string(), switch.name());
+  }
+
+  #[test]
+  fn test_name_with_ip() {
+    let switch = Switch::from_static_ip(ip("1.2.3.4"));
+    assert_eq!("1.2.3.4".to_string(), switch.name());
+  }
+
+  #[test]
+  fn test_name_without_ip() {
+    let switch = Switch {
+      device_identifier: DeviceIdentifier::Unimplemented,
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      serial_number: None,
+    };
+    assert_eq!("UNKNOWN".to_string(), switch.name());
   }
 }

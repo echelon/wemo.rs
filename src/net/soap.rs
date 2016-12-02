@@ -1,10 +1,9 @@
 // Copyright (c) 2015-2016 Brandon Thomas <bt@brand.io>
 
-use mio::{EventLoop, Handler, EventSet, PollOpt, Token};
 use mio::tcp::{Shutdown, TcpStream};
-
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use mio::{EventLoop, Handler, EventSet, PollOpt, Token};
 use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr};
 
 const CLIENT: Token = Token(0);
 const TIMEOUT: Token = Token(1);
@@ -25,8 +24,8 @@ pub struct SoapClient {
 }
 
 impl SoapClient {
-  pub fn connect(remote_ip_addr: Ipv4Addr, port: u16) -> Option<SoapClient> {
-    let socket = SocketAddr::V4(SocketAddrV4::new(remote_ip_addr, port));
+  pub fn connect(remote_ip_addr: IpAddr, port: u16) -> Option<SoapClient> {
+    let socket = SocketAddr::new(remote_ip_addr, port);
 
     match TcpStream::connect(&socket) {
       Err(_) => { None },
@@ -130,7 +129,8 @@ impl Handler for SoapClient {
   fn timeout(&mut self, event_loop: &mut EventLoop<SoapClient>,
              _token: Token) {
     debug!(target: "wemo", "SoapClient received timeout");
-    self.stream_socket.shutdown(Shutdown::Both).unwrap();
+    // NB: Shutdown seems to error if the wrong port was connected to.
+    let _r = self.stream_socket.shutdown(Shutdown::Both);
     event_loop.shutdown();
   }
 }
