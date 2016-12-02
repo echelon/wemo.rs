@@ -11,8 +11,6 @@ use net::soap::{SoapClient, SoapRequest};
 use net::ssdp::{DeviceSearch, SsdpResponse};
 use std::fmt::{Display, Error, Formatter};
 use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::str::FromStr;
 use std::sync::RwLock;
 use super::SerialNumber;
 use super::state::WemoState::{Off, On, OnWithoutLoad};

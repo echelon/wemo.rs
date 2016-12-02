@@ -3,7 +3,7 @@
 use mio::tcp::{Shutdown, TcpStream};
 use mio::{EventLoop, Handler, EventSet, PollOpt, Token};
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, IpAddr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, SocketAddr};
 
 const CLIENT: Token = Token(0);
 const TIMEOUT: Token = Token(1);
