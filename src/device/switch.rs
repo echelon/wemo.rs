@@ -95,6 +95,22 @@ impl Switch {
     }
   }
 
+  /// Construct a device that lives behind a static IP address and uses the
+  /// given port (ports are subject to change).
+  /// We won't need to issue later SSDP searches to find or relocate the device.
+  pub fn from_static_ip_and_port(ip_address: IpAddr, port: u16) -> Switch {
+    // FIXME: Unsafe code is bad, but this isn't going to stay for long.
+    let location = Url::parse(
+      &format!("http://{}:{}", ip_address, port)).unwrap();
+    Switch {
+      device_identifier: DeviceIdentifier::StaticIp(ip_address),
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(Some(port)),
+      location: location,
+      serial_number: None,
+    }
+  }
+
   /// Switch CTOR.
   #[deprecated(since="0.0.11")]
   pub fn from_url(url: &str) -> Result<Switch, ParseError> {
@@ -241,13 +257,7 @@ impl Switch {
   /// Get the current state of the device.
   pub fn get_state(&self, timeout: Duration) -> WemoResult {
     let ip_address = self.get_ip_address().ok_or(WemoError::NoLocalIp)?;
-
-    let port = match self.get_port() {
-      Some(port) => { port },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
+    let port = self.get_port().unwrap_or(DEFAULT_API_PORT);
 
     let mut client = match SoapClient::connect(ip_address, port) {
       Some(c) => { c },
@@ -298,13 +308,7 @@ impl Switch {
   /// Set the current state of the device.
   pub fn set_state(&self, state: WemoState, timeout: Duration) -> WemoResult {
     let ip_address = self.get_ip_address().ok_or(WemoError::NoLocalIp)?;
-
-    let port = match self.get_port() {
-      Some(port) => { port },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
+    let port = self.get_port().unwrap_or(DEFAULT_API_PORT);
 
     let mut client = match SoapClient::connect(ip_address, port) {
       Some(c) => { c },
@@ -429,18 +433,8 @@ impl Switch {
     switch.set_state(state.clone(), remaining)
   }
 
-  /// Get the currently known IP address.
-  /*pub fn get_ip_address_address(&self) -> Option<Ipv4Addr> {
-    self.location.host_str().and_then(|host| {
-      match Ipv4Addr::from_str(&host) {
-        Err(_) => { None },
-        Ok(ip) => { Some(ip) },
-      }
-    })
-  }*/
-
   /// Returns the static IP if the Wemo was configured with a static IP,
-  /// otherwise returns the last cached IP address.
+  /// otherwise returns the last cached IP address (which may not be set).
   pub fn get_ip_address(&self) -> Option<IpAddr> {
     match self.device_identifier {
       DeviceIdentifier::StaticIp(ip) => Some(ip.clone()),
@@ -452,10 +446,12 @@ impl Switch {
     }
   }
 
-  /// Get the currently known port.
-  #[inline]
+  /// Get the currently known port. If we haven't manually set the port or
+  /// talked to the Wemo device yet, the port will not be set.
   pub fn get_port(&self) -> Option<u16> {
-    self.location.port()
+    self.port.read()
+        .ok()
+        .and_then(|port| *port)
   }
 
   /// Attempt to find the Switch on the network via SSDP.
@@ -568,7 +564,7 @@ mod tests {
   }
 
   #[test]
-  fn get_get_ip_address_with_no_ip() {
+  fn test_get_ip_address_with_no_ip() {
     let switch = Switch {
       device_identifier:
       DeviceIdentifier::Unimplemented,
@@ -579,5 +575,18 @@ mod tests {
     };
 
     assert_eq!(None, switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_get_port_with_port_set() {
+    let switch = Switch::from_static_ip(IpAddr::from_str("1.1.1.1").unwrap());
+    assert_eq!(None, switch.get_port());
+  }
+
+  #[test]
+  fn test_get_port_without_port_set() {
+    let switch = Switch::from_static_ip_and_port(
+      IpAddr::from_str("1.1.1.1").unwrap(), 1234);
+    assert_eq!(Some(1234), switch.get_port());
   }
 }
