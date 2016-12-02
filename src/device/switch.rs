@@ -474,22 +474,7 @@ impl Switch {
 
     // Update existing Switch state.
     if result.is_some() {
-      let switch = result.as_ref().unwrap();
-
-      match self.port.write() {
-        Err(_) => {}, // Ignore.
-        Ok(mut port) => { *port = switch.get_port(); },
-      }
-
-      match self.device_identifier {
-        DeviceIdentifier::StaticIp(_) => {}, // No need to update.
-        _ => {
-          match self.dynamic_ip_address.write() {
-            Err(_) => {}, // Ignore.
-            Ok(mut ip_addr) => { *ip_addr = switch.get_ip_address(); },
-          }
-        },
-      }
+      self.update_location(&result.as_ref().unwrap());
     }
 
     result
@@ -520,6 +505,25 @@ impl Switch {
     match search.search_for_ip(&ip_address, timeout.num_milliseconds() as u64) {
       None => { None },
       Some(result) => { Some(Switch::from_search_result(result)) },
+    }
+  }
+
+  // TODO: Take an SsdpResponse instead.
+  // Update the IP and port from a search result using internal mutability.
+  fn update_location(&self, search_result: &Switch) {
+    match self.port.write() {
+      Err(_) => {}, // Ignore.
+      Ok(mut port) => { *port = search_result.get_port(); },
+    }
+
+    match self.device_identifier {
+      DeviceIdentifier::StaticIp(_) => {}, // No need to update.
+      _ => {
+        match self.dynamic_ip_address.write() {
+          Err(_) => {}, // Ignore.
+          Ok(mut ip_addr) => { *ip_addr = search_result.get_ip_address(); },
+        }
+      },
     }
   }
 
@@ -559,43 +563,45 @@ mod tests {
   use std::sync::RwLock;
   use super::*;
 
+  fn ip(ip_address: &str) -> IpAddr {
+    IpAddr::from_str(ip_address).unwrap()
+  }
+
   #[test]
   fn test_get_ip_address_with_static_ip() {
-    let switch = Switch::from_static_ip(IpAddr::from_str("127.0.0.1").unwrap());
-    assert_eq!(IpAddr::from_str("127.0.0.1").ok(), switch.get_ip_address());
+    let switch = Switch::from_static_ip(ip("127.0.0.1"));
+    assert_eq!(Some(ip("127.0.0.1")), switch.get_ip_address());
   }
 
   #[test]
   fn test_get_ip_address_with_dynamic_ip() {
     let switch = Switch {
       device_identifier: DeviceIdentifier::Unimplemented, // no static IP
-      dynamic_ip_address: RwLock::new(IpAddr::from_str("1.1.1.1").ok()),
+      dynamic_ip_address: RwLock::new(Some(ip("1.1.1.1"))),
       port: RwLock::new(None),
       location: Url::parse("http://localhost/").unwrap(),
       serial_number: None,
     };
 
-    assert_eq!(IpAddr::from_str("1.1.1.1").ok(), switch.get_ip_address());
+    assert_eq!(Some(ip("1.1.1.1")), switch.get_ip_address());
 
     // If it were to have a static and dynamic IP (not allowed), the static IP
     // is the one that is returned.
     let switch = Switch {
-      device_identifier:
-          DeviceIdentifier::StaticIp(IpAddr::from_str("2.2.2.2").unwrap()),
-      dynamic_ip_address: RwLock::new(IpAddr::from_str("3.3.3.3").ok()),
+      device_identifier: DeviceIdentifier::StaticIp(ip("2.2.2.2")),
+      dynamic_ip_address: RwLock::new(Some(ip("3.3.3.3"))),
       port: RwLock::new(None),
       location: Url::parse("http://localhost/").unwrap(),
       serial_number: None,
     };
 
-    assert_eq!(IpAddr::from_str("2.2.2.2").ok(), switch.get_ip_address());
+    assert_eq!(Some(ip("2.2.2.2")), switch.get_ip_address());
   }
 
   #[test]
   fn test_get_ip_address_with_no_ip() {
     let switch = Switch {
-      device_identifier:
-      DeviceIdentifier::Unimplemented,
+      device_identifier: DeviceIdentifier::Unimplemented,
       dynamic_ip_address: RwLock::new(None),
       port: RwLock::new(None),
       location: Url::parse("http://localhost/").unwrap(),
@@ -607,14 +613,46 @@ mod tests {
 
   #[test]
   fn test_get_port_with_port_set() {
-    let switch = Switch::from_static_ip(IpAddr::from_str("1.1.1.1").unwrap());
+    let switch = Switch::from_static_ip(ip("1.1.1.1"));
     assert_eq!(None, switch.get_port());
   }
 
   #[test]
   fn test_get_port_without_port_set() {
-    let switch = Switch::from_static_ip_and_port(
-      IpAddr::from_str("1.1.1.1").unwrap(), 1234);
+    let switch = Switch::from_static_ip_and_port(ip("1.1.1.1"), 1234);
     assert_eq!(Some(1234), switch.get_port());
+  }
+
+  #[test]
+  fn test_update_location_with_static_ip() {
+    let switch = Switch::from_static_ip_and_port(ip("1.1.1.1"), 1111);
+    let found = Switch::from_static_ip_and_port(ip("2.2.2.2"), 2222);
+
+    switch.update_location(&found);
+
+    // Port updates.
+    assert_eq!(Some(2222), switch.get_port());
+    // Static IPs do not get updated, though!
+    assert_eq!(Some(ip("1.1.1.1")), switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_update_location_with_dynamic_ip() {
+    let switch = Switch {
+      device_identifier:
+      DeviceIdentifier::Unimplemented,
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      location: Url::parse("http://localhost/").unwrap(),
+      serial_number: None,
+    };
+
+    let found = Switch::from_static_ip_and_port(ip("2.2.2.2"), 2222);
+
+    switch.update_location(&found);
+
+    // Port and IP address are updated.
+    assert_eq!(Some(2222), switch.get_port());
+    assert_eq!(Some(ip("2.2.2.2")), switch.get_ip_address());
   }
 }
