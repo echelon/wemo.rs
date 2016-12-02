@@ -6,30 +6,60 @@
 
 pub use time::Duration;
 pub use url::{Host, Url};
-
+use error::WemoError;
+use net::soap::{SoapClient, SoapRequest};
+use net::ssdp::{DeviceSearch, SsdpResponse};
+use std::fmt::{Display, Error, Formatter};
+use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
-use std::fmt::{Display, Error, Formatter};
-
+use std::sync::RwLock;
+use super::SerialNumber;
+use super::state::WemoState::{Off, On, OnWithoutLoad};
+use super::state::WemoState;
 use time::PreciseTime;
 use url::ParseError;
 use xml::find_tag_value;
 
-use super::SerialNumber;
-use super::state::WemoState::{Off, On, OnWithoutLoad};
-use super::state::WemoState;
-use error::WemoError;
-use net::soap::{SoapClient, SoapRequest};
-use net::ssdp::{DeviceSearch, SsdpResponse};
-
 pub type WemoResult = Result<WemoState, WemoError>;
 
+/// Default Wemo API port (HTTP).
+/// Wemo devices change ports occasionally by incrementing the port number.
+const DEFAULT_API_PORT: u16 = 49153;
+
 const FIRST_ATTEMPT_TIMEOUT: i64 = 300;
+
+// A method of identifying a WeMo device on the network. When a WeMo device
+// goes offline, this is what we use to find it again.
+enum DeviceIdentifier {
+  // A static IP address is the best way to find a device.
+  StaticIp(IpAddr),
+  // The human-given name of the WeMo device.
+  // This is case sensitive and must match exactly.
+  DeviceName(String),
+  // The WeMo serial number unique to the device.
+  SerialNumber(String),
+  // Transient value while this is unimplemented. TODO: Remove.
+  Unimplemented,
+}
 
 // TODO: Problems between internalized client, mutability, and clonability
 
 /// Represents a Wemo Switch device.
 pub struct Switch {
+  /// How we identify the device on the network. A static IP address is optimal.
+  device_identifier: DeviceIdentifier,
+
+  /// Location of the device if a dynamic IP address is used.
+  dynamic_ip_address: RwLock<Option<IpAddr>>,
+
+  /// Last known port the device used.
+  /// Wemo devices are notorious for occasionally changing ports, so we keep
+  /// track of the last one we found it using to reduce failed requests and
+  /// retries.
+  port: RwLock<Option<u16>>,
+
+  // TODO: GET RID OF THIS.
   /// Location of the device in the format `http://ip_address:port`.
   location: Url,
 
@@ -41,16 +71,34 @@ pub struct Switch {
 /// Functions for WeMo Switch.
 impl Switch {
   /// Switch CTOR.
-  #[inline]
+  #[deprecated(since="0.0.11")]
   pub fn new(url: Url) -> Switch {
     Switch {
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      device_identifier: DeviceIdentifier::Unimplemented,
       location: url.clone(),
       serial_number: None,
     }
   }
 
+  /// Construct a device that lives behind a static IP address.
+  /// We won't need to issue later SSDP searches to find or relocate the device.
+  pub fn from_static_ip(ip_address: IpAddr) -> Switch {
+    // FIXME: Unsafe code is bad, but this isn't going to stay for long.
+    let location = Url::parse(
+      &format!("http://{}:{}", ip_address, DEFAULT_API_PORT)).unwrap();
+    Switch {
+      device_identifier: DeviceIdentifier::StaticIp(ip_address),
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      location: location,
+      serial_number: None,
+    }
+  }
+
   /// Switch CTOR.
-  #[inline]
+  #[deprecated(since="0.0.11")]
   pub fn from_url(url: &str) -> Result<Switch, ParseError> {
     match Url::parse(url) {
       Ok(parsed_url) => { Ok(Switch::new(parsed_url)) },
@@ -59,22 +107,32 @@ impl Switch {
   }
 
   /// Switch CTOR.
-  #[inline]
+  #[deprecated(since="0.0.11")]
   pub fn from_ip_and_port(ip_addr: &str, port: u16) -> Switch {
     // FIXME: No unwrap. This library has bigger problems than this, though.
     let url = Url::parse(&format!("http://{}:{}", ip_addr, port)).unwrap();
-    Switch::new(url)
+    Switch {
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      device_identifier: DeviceIdentifier::Unimplemented,
+      location: url.clone(),
+      serial_number: None,
+    }
   }
 
   /// Switch CTOR.
-  #[inline]
   fn from_search_result(search_result: &SsdpResponse) -> Switch {
     // FIXME: Super lame and unsafe.
     let host = search_result.setup_url.host_str().unwrap();
     let port = search_result.port;
     let url = Url::parse(&format!("http://{}:{}", host, port)).unwrap();
+    // FIXME: IpAddr instead of Ipv4.
+    let ip_address = IpAddr::V4(search_result.ip_address);
 
     Switch {
+      dynamic_ip_address: RwLock::new(Some(ip_address)),
+      port: RwLock::new(None),
+      device_identifier: DeviceIdentifier::Unimplemented,
       location: url,
       serial_number: Some(search_result.serial_number.clone()),
     }
@@ -462,6 +520,19 @@ impl Switch {
     let mut url = self.location.clone();
     url.set_path("/upnp/control/basicevent1");
     url
+  }
+
+  /// Returns the static IP if the Wemo was configured with a static IP,
+  /// otherwise returns the last cached IP address.
+  pub fn get_ip(&self) -> Option<IpAddr> {
+    match self.device_identifier {
+      DeviceIdentifier::StaticIp(ip) => Some(ip.clone()),
+      _ => {
+        self.dynamic_ip_address.read()
+            .ok()
+            .and_then(|ip| ip.clone())
+      },
+    }
   }
 }
 
