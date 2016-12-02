@@ -126,11 +126,9 @@ impl Switch {
     let host = search_result.setup_url.host_str().unwrap();
     let port = search_result.port;
     let url = Url::parse(&format!("http://{}:{}", host, port)).unwrap();
-    // FIXME: IpAddr instead of Ipv4.
-    let ip_address = IpAddr::V4(search_result.ip_address);
 
     Switch {
-      dynamic_ip_address: RwLock::new(Some(ip_address)),
+      dynamic_ip_address: RwLock::new(Some(search_result.ip_address.clone())),
       port: RwLock::new(None),
       device_identifier: DeviceIdentifier::Unimplemented,
       location: url,
@@ -244,12 +242,7 @@ impl Switch {
 
   /// Get the current state of the device.
   pub fn get_state(&self, timeout: Duration) -> WemoResult {
-    let ip_address = match self.get_ip_address() {
-      Some(ip) => { ip },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
+    let ip_address = self.get_ip_address().ok_or(WemoError::NoLocalIp)?;
 
     let port = match self.get_port() {
       Some(port) => { port },
@@ -306,12 +299,7 @@ impl Switch {
 
   /// Set the current state of the device.
   pub fn set_state(&self, state: WemoState, timeout: Duration) -> WemoResult {
-    let ip_address = match self.get_ip_address() {
-      Some(ip) => { ip },
-      None => {
-        return Err(WemoError::BadResponseError); // TODO WRONG TYPE
-      },
-    };
+    let ip_address = self.get_ip_address().ok_or(WemoError::NoLocalIp)?;
 
     let port = match self.get_port() {
       Some(port) => { port },
@@ -444,18 +432,18 @@ impl Switch {
   }
 
   /// Get the currently known IP address.
-  pub fn get_ip_address(&self) -> Option<Ipv4Addr> {
+  /*pub fn get_ip_address_address(&self) -> Option<Ipv4Addr> {
     self.location.host_str().and_then(|host| {
       match Ipv4Addr::from_str(&host) {
         Err(_) => { None },
         Ok(ip) => { Some(ip) },
       }
     })
-  }
+  }*/
 
   /// Returns the static IP if the Wemo was configured with a static IP,
   /// otherwise returns the last cached IP address.
-  pub fn get_ip(&self) -> Option<IpAddr> {
+  pub fn get_ip_address(&self) -> Option<IpAddr> {
     match self.device_identifier {
       DeviceIdentifier::StaticIp(ip) => Some(ip.clone()),
       _ => {
@@ -550,13 +538,13 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_get_ip_with_static_ip() {
+  fn test_get_ip_address_with_static_ip() {
     let switch = Switch::from_static_ip(IpAddr::from_str("127.0.0.1").unwrap());
-    assert_eq!(IpAddr::from_str("127.0.0.1").ok(), switch.get_ip());
+    assert_eq!(IpAddr::from_str("127.0.0.1").ok(), switch.get_ip_address());
   }
 
   #[test]
-  fn test_get_ip_with_dynamic_ip() {
+  fn test_get_ip_address_with_dynamic_ip() {
     let switch = Switch {
       device_identifier: DeviceIdentifier::Unimplemented, // no static IP
       dynamic_ip_address: RwLock::new(IpAddr::from_str("1.1.1.1").ok()),
@@ -565,7 +553,7 @@ mod tests {
       serial_number: None,
     };
 
-    assert_eq!(IpAddr::from_str("1.1.1.1").ok(), switch.get_ip());
+    assert_eq!(IpAddr::from_str("1.1.1.1").ok(), switch.get_ip_address());
 
     // If it were to have a static and dynamic IP (not allowed), the static IP
     // is the one that is returned.
@@ -578,11 +566,11 @@ mod tests {
       serial_number: None,
     };
 
-    assert_eq!(IpAddr::from_str("2.2.2.2").ok(), switch.get_ip());
+    assert_eq!(IpAddr::from_str("2.2.2.2").ok(), switch.get_ip_address());
   }
 
   #[test]
-  fn get_get_ip_with_no_ip() {
+  fn get_get_ip_address_with_no_ip() {
     let switch = Switch {
       device_identifier:
       DeviceIdentifier::Unimplemented,
@@ -592,6 +580,6 @@ mod tests {
       serial_number: None,
     };
 
-    assert_eq!(None, switch.get_ip());
+    assert_eq!(None, switch.get_ip_address());
   }
 }
