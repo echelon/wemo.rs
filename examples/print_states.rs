@@ -17,9 +17,8 @@ pub fn main() {
     match device.get_state_with_retry(Duration::seconds(3)) {
       Err(_) => { println!("Could not get the state."); },
       Ok(state) => {
-        println!("Device {} turned on: {}", device.location(), state.is_on());
+        println!("Device {} turned on: {}", device.name(), state.is_on());
       },
     }
   }
 }
-

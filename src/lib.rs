@@ -42,4 +42,3 @@ pub use device::state::WemoState;
 pub use device::switch::{Switch, WemoResult};
 pub use net::ssdp::DeviceSearch;
 pub use net::ssdp::SsdpResponse;
-

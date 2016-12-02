@@ -168,25 +168,25 @@ impl Switch {
 
   /// Turn the device on.
   pub fn turn_on(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning on: {}", self.location());
+    info!(target: "wemo", "Turning on: {}", self.name());
     self.set_state(On, timeout)
   }
 
   /// Turn the device on.
   pub fn turn_on_with_retry(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning on with retry: {}", self.location());
+    info!(target: "wemo", "Turning on with retry: {}", self.name());
     self.set_state_with_retry(On, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning off: {}", self.location());
+    info!(target: "wemo", "Turning off: {}", self.name());
     self.set_state(Off, timeout)
   }
 
   /// Turn the device off.
   pub fn turn_off_with_retry(&self, timeout: Duration) -> WemoResult {
-    info!(target: "wemo", "Turning off with retry: {}", self.location());
+    info!(target: "wemo", "Turning off with retry: {}", self.name());
     self.set_state_with_retry(Off, timeout)
   }
 
@@ -543,16 +543,24 @@ impl Switch {
     }
   }
 
-  /// Simply for info logging. Not a useful format for converting to a URL.
-  pub fn location(&self) -> String {
-    // TODO: return just "ip:port" or "ip" if no port.
-    format!("{:?}:{:?}", self.get_ip_address(), self.get_port())
+  /// Return the IP/port, name, or other identifier for logging.
+  /// Not a useful format for converting into a URL.
+  pub fn name(&self) -> String {
+    match self.get_ip_address() {
+      None => "UNKNOWN".to_string(), // TODO: Use serial instead, if available.
+      Some(ip_addr) => {
+        match self.get_port() {
+          None => format!("{}", ip_addr),
+          Some(port) => format!("{}:{}", ip_addr, port),
+        }
+      }
+    }
   }
 }
 
 impl Display for Switch {
   fn fmt(&self, f : &mut Formatter) -> Result<(), Error> {
-    write!(f, "Switch<{}>", self.location())
+    write!(f, "Switch<{}>", self.name())
   }
 }
 
@@ -636,8 +644,7 @@ mod tests {
   #[test]
   fn test_update_location_with_dynamic_ip() {
     let switch = Switch {
-      device_identifier:
-      DeviceIdentifier::Unimplemented,
+      device_identifier: DeviceIdentifier::Unimplemented,
       dynamic_ip_address: RwLock::new(None),
       port: RwLock::new(None),
       serial_number: None,
@@ -650,5 +657,28 @@ mod tests {
     // Port and IP address are updated.
     assert_eq!(Some(2222), switch.get_port());
     assert_eq!(Some(ip("2.2.2.2")), switch.get_ip_address());
+  }
+
+  #[test]
+  fn test_name_with_ip_and_port() {
+    let switch = Switch::from_static_ip_and_port(ip("1.2.3.4"), 1234);
+    assert_eq!("1.2.3.4:1234".to_string(), switch.name());
+  }
+
+  #[test]
+  fn test_name_with_ip() {
+    let switch = Switch::from_static_ip(ip("1.2.3.4"));
+    assert_eq!("1.2.3.4".to_string(), switch.name());
+  }
+
+  #[test]
+  fn test_name_without_ip() {
+    let switch = Switch {
+      device_identifier: DeviceIdentifier::Unimplemented,
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      serial_number: None,
+    };
+    assert_eq!("UNKNOWN".to_string(), switch.name());
   }
 }
