@@ -127,7 +127,7 @@ impl Switch {
     let url = Url::parse(&format!("http://{}:{}", ip_addr, port)).unwrap();
     Switch {
       dynamic_ip_address: RwLock::new(None),
-      port: RwLock::new(None),
+      port: RwLock::new(Some(port)),
       device_identifier: DeviceIdentifier::Unimplemented,
       location: url.clone(),
       serial_number: None,
@@ -143,7 +143,7 @@ impl Switch {
 
     Switch {
       dynamic_ip_address: RwLock::new(Some(search_result.ip_address.clone())),
-      port: RwLock::new(None),
+      port: RwLock::new(Some(search_result.port)),
       device_identifier: DeviceIdentifier::Unimplemented,
       location: url,
       serial_number: Some(search_result.serial_number.clone()),
@@ -454,9 +454,15 @@ impl Switch {
         .and_then(|port| *port)
   }
 
+  // TODO: Refactor this to not create a new 'Switch'. Use interior mutability
+  // and return a boolean if the device was found.
+  // rename pub fn locate(&self, Duration) -> bool, but recommend against use
   /// Attempt to find the Switch on the network via SSDP.
+  /// Both the IP address and port will be updated if they changed. (The IP
+  /// address will not be updated if the device is configured to use a static
+  /// IP.)
   pub fn relocate(&self, timeout: Duration) -> Option<Switch> {
-    if self.serial_number.is_some() {
+    let result = if self.serial_number.is_some() {
       // Guaranteed to be the same device unless there is spoofing
       // (or Belkin assigned duplicate serial numbers).
       self.relocate_by_serial(timeout)
@@ -464,7 +470,29 @@ impl Switch {
       // Won't necessarily be the same device if DHCP has reassigned
       // the address.
       self.relocate_by_ip(timeout)
+    };
+
+    // Update existing Switch state.
+    if result.is_some() {
+      let switch = result.as_ref().unwrap();
+
+      match self.port.write() {
+        Err(_) => {}, // Ignore.
+        Ok(mut port) => { *port = switch.get_port(); },
+      }
+
+      match self.device_identifier {
+        DeviceIdentifier::StaticIp(_) => {}, // No need to update.
+        _ => {
+          match self.dynamic_ip_address.write() {
+            Err(_) => {}, // Ignore.
+            Ok(mut ip_addr) => { *ip_addr = switch.get_ip_address(); },
+          }
+        },
+      }
     }
+
+    result
   }
 
   fn relocate_by_serial(&self, timeout: Duration) -> Option<Switch> {
