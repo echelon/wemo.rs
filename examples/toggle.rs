@@ -3,8 +3,9 @@ extern crate wemo;
 extern crate time;
 
 use std::env;
+use std::net::IpAddr;
+use std::str::FromStr;
 use time::Duration;
-
 use wemo::Switch;
 
 pub fn main() {
@@ -18,7 +19,8 @@ pub fn main() {
 
   println!("Toggling state of device at IP: {}", ip_address);
 
-  let switch = Switch::from_url(&format!("http://{}", ip_address)).unwrap();
+  let ip_address = IpAddr::from_str(&ip_address).unwrap();
+  let switch = Switch::from_static_ip(ip_address);
   let timeout = Duration::seconds(5);
 
   assert!(switch.toggle_with_retry(timeout).is_ok());
