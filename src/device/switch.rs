@@ -31,16 +31,16 @@ const FIRST_ATTEMPT_TIMEOUT: i64 = 300;
 
 // A method of identifying a WeMo device on the network. When a WeMo device
 // goes offline, this is what we use to find it again.
-enum DeviceIdentifier {
+pub enum DeviceIdentifier {
   // A static IP address is the best way to find a device.
   StaticIp(IpAddr),
   // The human-given name of the WeMo device.
   // This is case sensitive and must match exactly.
-  DeviceName(String),
+  // TODO: DeviceName(String),
   // The WeMo serial number unique to the device.
-  SerialNumber(String),
-  // Transient value while this is unimplemented. TODO: Remove.
-  Unimplemented,
+  // TODO: SerialNumber(String),
+  // Transient value while this is unimplemented.
+  Unimplemented, // TODO: Remove.
 }
 
 // TODO: Problems between internalized client, mutability, and clonability
@@ -453,6 +453,19 @@ impl Switch {
     })
   }
 
+  /// Returns the static IP if the Wemo was configured with a static IP,
+  /// otherwise returns the last cached IP address.
+  pub fn get_ip(&self) -> Option<IpAddr> {
+    match self.device_identifier {
+      DeviceIdentifier::StaticIp(ip) => Some(ip.clone()),
+      _ => {
+        self.dynamic_ip_address.read()
+            .ok()
+            .and_then(|ip| ip.clone())
+      },
+    }
+  }
+
   /// Get the currently known port.
   #[inline]
   pub fn get_port(&self) -> Option<u16> {
@@ -521,23 +534,64 @@ impl Switch {
     url.set_path("/upnp/control/basicevent1");
     url
   }
-
-  /// Returns the static IP if the Wemo was configured with a static IP,
-  /// otherwise returns the last cached IP address.
-  pub fn get_ip(&self) -> Option<IpAddr> {
-    match self.device_identifier {
-      DeviceIdentifier::StaticIp(ip) => Some(ip.clone()),
-      _ => {
-        self.dynamic_ip_address.read()
-            .ok()
-            .and_then(|ip| ip.clone())
-      },
-    }
-  }
 }
 
 impl Display for Switch {
   fn fmt(&self, f : &mut Formatter) -> Result<(), Error> {
     write!(f, "Switch<{}>", self.location)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::net::IpAddr;
+  use std::str::FromStr;
+  use std::sync::RwLock;
+  use super::*;
+
+  #[test]
+  fn test_get_ip_with_static_ip() {
+    let switch = Switch::from_static_ip(IpAddr::from_str("127.0.0.1").unwrap());
+    assert_eq!(IpAddr::from_str("127.0.0.1").ok(), switch.get_ip());
+  }
+
+  #[test]
+  fn test_get_ip_with_dynamic_ip() {
+    let switch = Switch {
+      device_identifier: DeviceIdentifier::Unimplemented, // no static IP
+      dynamic_ip_address: RwLock::new(IpAddr::from_str("1.1.1.1").ok()),
+      port: RwLock::new(None),
+      location: Url::parse("http://localhost/").unwrap(),
+      serial_number: None,
+    };
+
+    assert_eq!(IpAddr::from_str("1.1.1.1").ok(), switch.get_ip());
+
+    // If it were to have a static and dynamic IP (not allowed), the static IP
+    // is the one that is returned.
+    let switch = Switch {
+      device_identifier:
+          DeviceIdentifier::StaticIp(IpAddr::from_str("2.2.2.2").unwrap()),
+      dynamic_ip_address: RwLock::new(IpAddr::from_str("3.3.3.3").ok()),
+      port: RwLock::new(None),
+      location: Url::parse("http://localhost/").unwrap(),
+      serial_number: None,
+    };
+
+    assert_eq!(IpAddr::from_str("2.2.2.2").ok(), switch.get_ip());
+  }
+
+  #[test]
+  fn get_get_ip_with_no_ip() {
+    let switch = Switch {
+      device_identifier:
+      DeviceIdentifier::Unimplemented,
+      dynamic_ip_address: RwLock::new(None),
+      port: RwLock::new(None),
+      location: Url::parse("http://localhost/").unwrap(),
+      serial_number: None,
+    };
+
+    assert_eq!(None, switch.get_ip());
   }
 }
