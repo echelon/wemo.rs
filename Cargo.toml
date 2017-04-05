@@ -22,7 +22,7 @@
   persistent = { version = "0.2.*", optional = true }
   regex = "0.1.*"
   time = "0.1.*"
-  url = "1.2.*"
+  url = ">= 1.2, < 1.5"
   urlencoded = { version = "0.4.*", optional = true }
 
 [features]
